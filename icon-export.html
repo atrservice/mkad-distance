@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Генератор иконок — МКАД Дистанс</title>
+<style>
+  body{ font-family:system-ui, sans-serif; padding:24px; color:#101828; }
+  canvas{ border:1px solid #e4e9f1; border-radius:12px; margin:8px 12px 8px 0; vertical-align:middle; }
+  button{ padding:10px 16px; border:1px solid #d0d7e2; border-radius:10px; background:#fff; font-size:14px; cursor:pointer; }
+  .row{ display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+  code{ background:#f2f4f7; padding:2px 6px; border-radius:6px; }
+</style>
+</head>
+<body>
+<h1>Генератор иконок</h1>
+<p>Скачайте файлы и положите в папку <code>icons/</code>: <code>icon-512.png</code>, <code>icon-192.png</code>, <code>icon-180.png</code> (для iPhone). Затем добавьте их в <code>manifest.webmanifest</code> и замените путь у <code>apple-touch-icon</code> в <code>index.html</code> на <code>icons/icon-180.png</code>.</p>
+<div id="previews"></div>
+<script>
+function draw(size){
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const x = c.getContext('2d');
+  const k = size / 512;
+  x.fillStyle = '#ffffff';
+  x.fillRect(0, 0, size, size);
+  x.strokeStyle = '#1c5ede';
+  x.lineWidth = 30 * k;
+  x.setLineDash([78 * k, 36 * k]);
+  x.beginPath(); x.arc(256 * k, 266 * k, 150 * k, 0, Math.PI * 2); x.stroke();
+  x.setLineDash([]);
+  x.fillStyle = '#1c5ede';
+  x.beginPath(); x.arc(256 * k, 266 * k, 22 * k, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#ff5a3c';
+  x.beginPath(); x.arc(362 * k, 160 * k, 34 * k, 0, Math.PI * 2); x.fill();
+  x.strokeStyle = '#ffffff';
+  x.lineWidth = 10 * k;
+  x.stroke();
+  return c;
+}
+const previews = document.getElementById('previews');
+[[512, 'icon-512.png'], [192, 'icon-192.png'], [180, 'icon-180.png']].forEach(([s, name]) => {
+  const c = draw(s);
+  const row = document.createElement('div');
+  row.className = 'row';
+  const b = document.createElement('button');
+  b.textContent = 'Скачать ' + name + ' (' + s + '×' + s + ')';
+  b.onclick = () => c.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, 'image/png');
+  row.append(c, b);
+  previews.append(row);
+});
+</script>
+</body>
+</html>

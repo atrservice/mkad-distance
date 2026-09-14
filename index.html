@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>МКАД Дистанс — калькулятор пробега по дорогам Москвы</title>
+<meta name="description" content="Автоматический расчёт пробега по дорогам от МКАД до адресов: ближайшие съезды, маршруты, а не прямые линии.">
+<meta name="theme-color" content="#ffffff">
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="МКАД Дистанс">
+
+<!-- Ускоряем внешние сервисы -->
+<link rel="preconnect" href="https://nominatim.openstreetmap.org">
+<link rel="preconnect" href="https://router.project-osrm.org">
+<link rel="preconnect" href="https://overpass-api.de">
+<link rel="preconnect" href="https://tile.openstreetmap.org">
+<link rel="preconnect" href="https://unpkg.com">
+
+<!-- Карта Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="page">
+
+  <header class="header">
+    <div class="brand">
+      <svg class="brand-logo" viewBox="0 0 44 44" aria-hidden="true">
+        <circle cx="22" cy="23" r="13" fill="none" stroke="#1c5ede" stroke-width="3" stroke-linecap="round" stroke-dasharray="6.5 3.5"/>
+        <circle cx="22" cy="23" r="2.6" fill="#1c5ede"/>
+        <circle cx="31.2" cy="13.8" r="4.6" fill="#ff5a3c" stroke="#ffffff" stroke-width="1.6"/>
+      </svg>
+      <div>
+        <h1>МКАД Дистанс</h1>
+        <p class="tagline">Автоматический расчёт пробега по дорогам Москвы и области</p>
+      </div>
+    </div>
+    <button id="installBtn" class="btn btn-ghost" type="button" hidden>На главный экран</button>
+  </header>
+
+  <main class="layout">
+
+    <!-- ЛЕВАЯ КОЛОНКА -->
+    <section class="col-main">
+
+      <section class="card">
+        <h2 class="card-title">Маршрут</h2>
+        <div class="addr-list" id="addrList"></div>
+        <p class="form-note">
+          Выбирайте адрес из подсказок или вставьте координаты вида <b>55.756, 37.617</b>.
+          Пробег пересчитывается автоматически: МКАД → адреса → МКАД, а если последний адрес
+          внутри МКАД — маршрут закончится на нём.
+        </p>
+        <div class="form-foot">
+          <span class="mkad-status" id="mkadStatus">Схема МКАД: загружается…</span>
+        </div>
+      </section>
+
+      <!-- ПЛАШКА С ПРОБЕГОМ -->
+      <section class="card plate-card" id="plateCard" data-state="idle" aria-live="polite">
+        <div class="plate-left">
+          <div class="plate-total">
+            <span id="plateDistance">—</span><span class="plate-unit">км</span>
+          </div>
+          <div class="plate-status" id="plateStatus">Введите адрес — пробег посчитается автоматически</div>
+        </div>
+        <div class="plate-right"><span class="plate-dur" id="plateDuration"></span></div>
+      </section>
+
+      <!-- ТЕХНИКА -->
+      <section class="card">
+        <h2 class="card-title">Тип техники</h2>
+        <div class="veh-field">
+          <input id="vehicleInput" type="text" placeholder="Выберите тип техники" autocomplete="off">
+          <div class="suggest" id="vehicleSuggest" hidden></div>
+        </div>
+        <div id="specsForm" class="specs-form"></div>
+      </section>
+
+    </section>
+
+    <!-- ПРАВАЯ КОЛОНКА -->
+    <section class="col-side">
+      <div class="card map-card"><div id="map" aria-label="Карта маршрута"></div></div>
+      <div class="card" id="legsCard" hidden>
+        <h2 class="card-title">Участки маршрута</h2>
+        <ol class="legs" id="legsList"></ol>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Данные карты © участники OpenStreetMap · Маршрутизация: OSRM (демо-сервер)<br>
+    <button id="helpBtn" class="linklike" type="button">Как установить приложение на телефон</button>
+  </footer>
+</div>
+
+<dialog id="helpDialog" aria-label="Установка приложения">
+  <h3>Как добавить на главный экран</h3>
+  <p><b>Android (Chrome):</b> при открытии сайта появится кнопка «Установить приложение» либо: меню ⋮ → «Добавить на главный экран».</p>
+  <p><b>iPhone (Safari):</b> нажмите кнопку «Поделиться» (квадрат со стрелкой вверх) → «На экран Домой».</p>
+  <p>Приложение откроется как отдельное мини-приложение: полноэкранно, со своей иконкой.</p>
+  <button id="helpClose" class="btn btn-primary" type="button">Понятно</button>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
