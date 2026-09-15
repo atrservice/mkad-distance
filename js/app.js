@@ -627,6 +627,14 @@ document.querySelectorAll('.help-mark').forEach(btn => {
     btn.closest('.help-wrap').classList.toggle('open');
   });
 });
+/* Тап по самому сообщению тултипа тоже закрывает его (удобно на мобильных) */
+document.querySelectorAll('.help-tip').forEach(tip => {
+  tip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wrap = tip.closest('.help-wrap');
+    if (wrap) wrap.classList.remove('open');
+  });
+});
 document.addEventListener('click', (e) => {
   document.querySelectorAll('.help-wrap.open').forEach(w => {
     if (!w.contains(e.target)) w.classList.remove('open');

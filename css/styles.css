@@ -70,10 +70,15 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   opacity:0; visibility:hidden; transform:translateY(-4px);
   transition:opacity .15s, transform .15s, visibility .15s;
 }
-.help-wrap:hover .help-tip,
 .help-mark:focus + .help-tip,
 .help-wrap.open .help-tip{
   opacity:1; visibility:visible; transform:translateY(0);
+}
+/* Hover-показ только для устройств с курсором, чтобы на тач-экранах не было «липкого» тултипа */
+@media (hover:hover){
+  .help-wrap:hover .help-tip{
+    opacity:1; visibility:visible; transform:translateY(0);
+  }
 }
 @media (max-width:640px){
   /* На мобильных тултип — плашка поверх экрана, не выходит за границы */
@@ -82,7 +87,6 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
     width:auto; max-width:none; z-index:2000;
     transform:none; box-shadow:0 8px 24px rgba(16,24,40,.18);
   }
-  .help-wrap:hover .help-tip,
   .help-mark:focus + .help-tip,
   .help-wrap.open .help-tip{
     transform:none;
