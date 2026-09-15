@@ -14,33 +14,27 @@
   --radius:16px;
   --shadow:0 1px 2px rgba(16,24,40,.05), 0 4px 16px rgba(16,24,40,.04);
 }
-
 *{ box-sizing:border-box; }
 html,body{ margin:0; padding:0; }
 body{
-  background:var(--bg);
-  color:var(--ink);
+  background:var(--bg); color:var(--ink);
   font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing:antialiased;
   -webkit-tap-highlight-color:transparent;
 }
-
 .page{
   max-width:1120px; margin:0 auto;
   padding:20px 16px calc(28px + env(safe-area-inset-bottom));
 }
-
 /* Шапка */
 .header{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:6px 4px 20px; }
 .brand{ display:flex; align-items:center; gap:12px; }
 .brand-logo{ width:44px; height:44px; flex:none; }
 h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .tagline{ margin:2px 0 0; font-size:13px; color:var(--muted); }
-
 /* Сетка */
 .layout{ display:grid; grid-template-columns:440px minmax(0,1fr); gap:20px; align-items:start; }
 .col-main, .col-side{ display:flex; flex-direction:column; gap:20px; min-width:0; }
-
 .card{
   background:#fff;
   border:1px solid var(--border);
@@ -49,7 +43,6 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   padding:20px;
 }
 .card-title{ margin:0 0 14px; font-size:16px; font-weight:700; }
-
 /* Маркер-подсказка у заголовка */
 .help-wrap{ position:relative; display:inline-block; margin-left:8px; vertical-align:middle; }
 .help-mark{
@@ -70,6 +63,7 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   opacity:0; visibility:hidden; transform:translateY(-4px);
   transition:opacity .15s, transform .15s, visibility .15s;
 }
+.help-tip a{ color:var(--accent); }
 .help-mark:focus + .help-tip,
 .help-wrap.open .help-tip{
   opacity:1; visibility:visible; transform:translateY(0);
@@ -92,7 +86,78 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
     transform:none;
   }
 }
-
+/* ---------- Режим и сегментированные переключатели ---------- */
+.seg{
+  display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:4px;
+  background:#f2f4f7; border:1px solid var(--border); border-radius:14px;
+}
+.seg-btn{
+  height:44px; border:none; border-radius:10px; background:transparent;
+  font:inherit; font-size:15px; font-weight:600; color:var(--ink-2); cursor:pointer;
+  transition:background .15s, color .15s, box-shadow .15s;
+}
+.seg-btn.is-active{ background:#fff; color:var(--accent); box-shadow:0 1px 3px rgba(16,24,40,.12); }
+.seg-btn.is-locked{ color:var(--muted); }
+.seg-opt{ position:relative; }
+.seg-opt input{ position:absolute; opacity:0; pointer-events:none; }
+.seg-opt span{
+  display:flex; align-items:center; justify-content:center; height:44px; border-radius:10px;
+  font-size:15px; font-weight:600; color:var(--ink-2); cursor:pointer;
+  transition:background .15s, color .15s, box-shadow .15s;
+}
+.seg-opt input:checked + span{ background:#fff; color:var(--accent); box-shadow:0 1px 3px rgba(16,24,40,.12); }
+.seg-opt input:focus-visible + span{ box-shadow:0 0 0 3px rgba(28,94,222,.25); }
+/* ---------- Сворачиваемые секции (Маршрут / Выбор техники) ---------- */
+.section-head{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.section-head .card-title{ margin:0; }
+.section-head:focus-visible{ outline:2px solid var(--accent); outline-offset:4px; border-radius:8px; }
+.section.is-collapsed .section-head{ cursor:pointer; margin-bottom:0; }
+.section-km{
+  margin-left:auto; font-size:14px; font-weight:700; color:var(--accent);
+  white-space:nowrap; font-variant-numeric:tabular-nums;
+}
+.section-summary{ color:var(--ink-2); font-weight:600; max-width:62%; overflow:hidden; text-overflow:ellipsis; }
+.section-chevron{
+  flex:none; width:9px; height:9px; margin-left:6px;
+  border-right:2px solid var(--muted); border-bottom:2px solid var(--muted);
+  transform:rotate(45deg) translate(-1px,-1px);
+}
+.section:not(.is-collapsed) .section-km,
+.section:not(.is-collapsed) .section-chevron{ display:none; }
+.section.is-collapsed .section-body{ display:none; }
+.section-body > .plate-card{
+  margin-top:16px; padding:14px;
+  border:1px solid var(--border); border-radius:12px; background:#f8fafc;
+}
+.btn-rent{ margin-top:16px; }
+.chassis-wrap{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+.veh-label{ display:block; margin-bottom:6px; }
+.spec-label-row{ display:flex; align-items:center; }
+#specWrap{ margin-top:14px; }
+/* ---------- Плашка стоимости аренды ---------- */
+.price-plate{
+  margin-top:16px; padding:14px;
+  border:1px solid var(--border); border-radius:12px; background:#f8fafc;
+}
+.price-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.price-field{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--ink-2); }
+.price-field input{
+  width:100%; height:44px; padding:0 12px;
+  border:1px solid var(--border-strong); border-radius:12px;
+  font:inherit; font-size:16px; color:var(--ink); background:#fff; outline:none;
+  transition:border-color .15s, box-shadow .15s;
+}
+.price-field input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(28,94,222,.14); }
+.price-total{
+  display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 10px;
+  margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-strong);
+}
+.price-total-label{ font-size:14px; font-weight:600; color:var(--ink-2); }
+.price-total-value{ font-size:24px; font-weight:800; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+.price-total-note{ width:100%; font-size:12.5px; line-height:1.45; color:var(--ink-2); }
+/* ---------- Режим «Стоимость аренды» ---------- */
+body.mode-rent .layout{ grid-template-columns:1fr; }
+body.mode-rent .col-side{ display:none; }
 /* ---------- Адреса ---------- */
 .addr-list{ display:flex; flex-direction:column; gap:10px; }
 .addr-row{ display:grid; grid-template-columns:28px minmax(0,1fr) 36px; gap:8px; align-items:start; }
@@ -112,15 +177,12 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   border-color:var(--accent); box-shadow:0 0 0 3px rgba(28,94,222,.14);
 }
 .addr-field input::placeholder, .veh-field input::placeholder{ color:#b6bfcc; }
-
 .addr-row.is-ghost .addr-del{ visibility:hidden; }
-
 .addr-del{
   width:36px; height:48px; border:1px solid var(--border); border-radius:12px;
   background:#fff; color:var(--muted); font-size:20px; line-height:1; cursor:pointer;
 }
 .addr-del:hover{ color:var(--danger); border-color:#f0b2ac; }
-
 /* Тумблер «Возврат на МКАД» */
 .toggle{ display:flex; align-items:center; gap:10px; margin-top:14px; cursor:pointer; user-select:none; }
 .toggle input{ position:absolute; opacity:0; pointer-events:none; }
@@ -151,11 +213,9 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   color:#b54708; font-size:18px; line-height:1; cursor:pointer; padding:2px 4px;
 }
 .toggle.is-disabled{ opacity:.55; cursor:default; }
-
 .addr-meta{ margin-top:5px; min-height:16px; font-size:12px; color:var(--muted); }
 .addr-meta[data-state="in"]{ color:var(--ok); font-weight:600; }
 .addr-meta[data-state="out"]{ color:var(--warn); font-weight:600; }
-
 /* ---------- Выпадающие подсказки (адреса и техника) ---------- */
 .veh-field{ position:relative; }
 .suggest{
@@ -174,7 +234,6 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .suggest-item.muted{ color:var(--muted); cursor:default; }
 .suggest-title{ font-size:14px; color:var(--ink); overflow-wrap:anywhere; }
 .suggest-sub{ font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
-
 /* ---------- Плашка пробега ---------- */
 .plate-card{ display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .plate-total{
@@ -196,9 +255,7 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 }
 .plate-card[data-state="error"] .plate-status{ color:var(--danger); }
 @keyframes spin{ to{ transform:rotate(360deg); } }
-
-/* ---------- Техника и характеристики ---------- */
-.specs-form{ margin-top:14px; display:flex; flex-direction:column; gap:10px; }
+/* ---------- Характеристики техники ---------- */
 .spec-row{ display:flex; flex-direction:column; gap:6px; }
 .spec-label{ font-size:13px; color:var(--ink-2); }
 .spec-control{
@@ -213,8 +270,6 @@ select.spec-control{
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2398a2b3' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat:no-repeat; background-position:right 12px center;
 }
-.specs-empty{ margin:12px 0 0; font-size:13px; color:var(--muted); }
-
 /* ---------- Участки маршрута ---------- */
 .legs{ list-style:none; margin:0; padding:0; border-top:1px solid var(--border); }
 .leg{
@@ -226,18 +281,15 @@ select.spec-control{
 .leg b{ margin-left:auto; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .leg .muted{ min-width:62px; text-align:right; }
 .muted{ color:var(--muted); font-size:12.5px; }
-
 /* ---------- Карта ---------- */
 .map-card{ padding:8px; }
 #map{ height:420px; border-radius:12px; }
-
 .pin-bubble{
   width:28px; height:28px; display:flex; align-items:center; justify-content:center;
   border-radius:50%; background:var(--accent); color:#fff;
   font-weight:700; font-size:13px; border:2px solid #fff;
   box-shadow:0 1px 4px rgba(0,0,0,.3);
 }
-
 /* ---------- Прочее ---------- */
 .btn{ font:inherit; }
 .btn-primary{
@@ -252,10 +304,8 @@ select.spec-control{
   background:#fff; color:var(--accent); font-size:14px; font-weight:600; cursor:pointer;
 }
 .btn-ghost:hover{ border-color:var(--accent); }
-
 .footer{ margin-top:26px; text-align:center; font-size:12px; line-height:1.7; color:var(--muted); }
 .linklike{ background:none; border:none; padding:0; color:var(--accent); font-size:12px; text-decoration:underline; cursor:pointer; }
-
 #toast{
   position:fixed; left:50%; bottom:calc(24px + env(safe-area-inset-bottom));
   transform:translateX(-50%) translateY(20px);
@@ -264,7 +314,6 @@ select.spec-control{
   opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:2000;
 }
 #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
-
 dialog{
   border:1px solid var(--border); border-radius:16px; padding:20px;
   max-width:440px; width:calc(100% - 40px); box-shadow:var(--shadow);
@@ -272,7 +321,6 @@ dialog{
 dialog::backdrop{ background:rgba(16,24,40,.4); }
 dialog h3{ margin:0 0 12px; }
 dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
-
 /* ---------- Адаптация ---------- */
 @media (max-width:1000px){
   .layout{ grid-template-columns:1fr; }
@@ -281,10 +329,10 @@ dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
 @media (max-width:640px){
   .page{ padding:12px 12px 170px; }
   .card{ padding:16px; border-radius:14px; }
-
   /* Плашка прилипает к низу экрана */
   .plate-card{
     position:fixed; left:0; right:0; bottom:0; z-index:1100; margin:0;
+    background:#fff;
     border-radius:16px 16px 0 0; border-left:none; border-right:none; border-bottom:none;
     box-shadow:0 -8px 24px rgba(16,24,40,.14);
     padding:12px 16px calc(12px + env(safe-area-inset-bottom));
@@ -292,9 +340,7 @@ dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
   }
   body.kb-open .plate-card{ transform:translateY(110%); }
   .plate-total{ font-size:30px; }
-
-  .specs-form{ gap:12px; }
-}
-@media (min-width:641px){
-  .specs-form{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  /* В режиме аренды плашка пробега скрыта — лишний нижний отступ не нужен */
+  body.mode-rent .page{ padding-bottom:calc(28px + env(safe-area-inset-bottom)); }
+  .price-grid{ grid-template-columns:1fr; }
 }

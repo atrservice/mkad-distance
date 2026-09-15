@@ -1,4 +1,4 @@
-const CACHE_STATIC = 'mkad-static-v19';
+const CACHE_STATIC = 'mkad-static-v21';
 const APP_SHELL = [
   './',
   './index.html',
@@ -20,7 +20,6 @@ const APP_SHELL = [
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
-
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_STATIC)
@@ -28,7 +27,6 @@ self.addEventListener('install', (e) => {
       .then(() => self.skipWaiting())
   );
 });
-
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
@@ -36,15 +34,12 @@ self.addEventListener('activate', (e) => {
       .then(() => self.clients.claim())
   );
 });
-
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
-
   const url = new URL(req.url);
   const handled = url.origin === location.origin || url.hostname === 'unpkg.com';
   if (!handled) return;
-
   if (req.mode === 'navigate'){
     e.respondWith((async () => {
       try {
@@ -58,7 +53,6 @@ self.addEventListener('fetch', (e) => {
     })());
     return;
   }
-
   e.respondWith((async () => {
     const cached = await caches.match(req);
     const network = fetch(req).then(res => {

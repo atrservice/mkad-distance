@@ -6,7 +6,6 @@
 <title>МКАД Дистанс — калькулятор пробега по дорогам Москвы</title>
 <meta name="description" content="Автоматический расчёт пробега по дорогам от МКАД до адресов: ближайшие съезды, маршруты, а не прямые линии.">
 <meta name="theme-color" content="#ffffff">
-
 <!-- PWA -->
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
@@ -15,117 +14,160 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="МКАД Дистанс">
-
 <!-- Ускоряем внешние сервисы -->
 <link rel="preconnect" href="https://nominatim.openstreetmap.org">
 <link rel="preconnect" href="https://router.project-osrm.org">
 <link rel="preconnect" href="https://overpass-api.de">
 <link rel="preconnect" href="https://tile.openstreetmap.org">
 <link rel="preconnect" href="https://unpkg.com">
-
 <!-- Карта Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 <div class="page">
-
-  <header class="header">
-    <div class="brand">
-      <svg class="brand-logo" viewBox="0 0 44 44" aria-hidden="true">
-        <circle cx="22" cy="23" r="13" fill="none" stroke="#1c5ede" stroke-width="3" stroke-linecap="round" stroke-dasharray="6.5 3.5"/>
-        <circle cx="22" cy="23" r="2.6" fill="#1c5ede"/>
-        <circle cx="31.2" cy="13.8" r="4.6" fill="#ff5a3c" stroke="#ffffff" stroke-width="1.6"/>
-      </svg>
-      <div>
-        <h1>МКАД Дистанс</h1>
-        <p class="tagline">Автоматический расчёт пробега по дорогам Москвы и области</p>
-      </div>
-    </div>
-    <button id="installBtn" class="btn btn-ghost" type="button" hidden>На главный экран</button>
-  </header>
-
-  <div class="net-warn" id="netWarn" hidden>
-    <span>Похоже, сервисы карты недоступны (адреса не находятся, карта серая). Если на устройстве включён <b>VPN</b> — отключите его и обновите страницу.</span>
-    <button type="button" class="net-warn-close" id="netWarnClose" aria-label="Скрыть предупреждение">×</button>
-  </div>
-
-  <main class="layout">
-
-    <!-- ЛЕВАЯ КОЛОНКА -->
-    <section class="col-main">
-
-      <section class="card">
-        <h2 class="card-title">Маршрут
-          <span class="help-wrap">
-          <button type="button" class="help-mark" id="helpMarkRoute" aria-label="Как считается пробег">?</button>
-            <span class="help-tip" role="tooltip">Выбирайте адрес из подсказок или вставьте координаты вида <b>55.756, 37.617</b>. Пробег пересчитывается автоматически. Если первый адрес внутри МКАД — пробег начинается с него (0 км), для адресов снаружи МКАД добавляется выезд к ближайшему съезду.</span>
-          </span>
-        </h2>
-        <div class="addr-list" id="addrList"></div>
-        <div class="toggle-row">
-          <label class="toggle">
-            <input type="checkbox" id="returnToggle" checked>
-            <span class="toggle-box" aria-hidden="true"></span>
-            <span class="toggle-text">Возврат на МКАД</span>
-          </label>
-          <span class="help-wrap">
-            <button type="button" class="help-mark" id="helpMarkReturn" aria-label="О переключателе «Возврат на МКАД»">?</button>
-            <span class="help-tip" role="tooltip">Переключатель «Возврат на МКАД» (включён по умолчанию) добавляет обратный пробег от последнего адреса до МКАД, если этот адрес снаружи МКАД. Если последний (или единственный) адрес внутри МКАД — переключатель блокируется и игнорируется: выезд и возврат не рассчитываются (зона 0 км).</span>
-          </span>
-        </div>
-        <p class="toggle-hint" id="returnToggleHint"></p>
-      </section>
-
-      <!-- ПЛАШКА С ПРОБЕГОМ -->
-      <section class="card plate-card" id="plateCard" data-state="idle" aria-live="polite">
-        <div class="plate-left">
-          <div class="plate-total">
-            <span id="plateDistance">—</span><span class="plate-unit">км</span>
-          </div>
-          <div class="plate-status" id="plateStatus">Введите адрес — пробег посчитается автоматически</div>
-        </div>
-        <div class="plate-right"><span class="plate-dur" id="plateDuration"></span></div>
-      </section>
-
-      <!-- ТЕХНИКА -->
-      <section class="card">
-        <h2 class="card-title">Тип техники</h2>
-        <div class="veh-field">
-          <input id="vehicleInput" type="text" placeholder="Выберите тип техники" autocomplete="off">
-          <div class="suggest" id="vehicleSuggest" hidden></div>
-        </div>
-        <div id="specsForm" class="specs-form"></div>
-      </section>
-
-    </section>
-
-    <!-- ПРАВАЯ КОЛОНКА -->
-    <section class="col-side">
-      <div class="card map-card"><div id="map" aria-label="Карта маршрута"></div></div>
-      <div class="card" id="legsCard" hidden>
-        <h2 class="card-title">Участки маршрута</h2>
-        <ol class="legs" id="legsList"></ol>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    Данные карты © участники OpenStreetMap · Маршрутизация: OSRM (демо-сервер)<br>
-    <button id="helpBtn" class="linklike" type="button">Как установить приложение на телефон</button>
-  </footer>
+<header class="header">
+<div class="brand">
+<svg class="brand-logo" viewBox="0 0 44 44" aria-hidden="true">
+<circle cx="22" cy="23" r="13" fill="none" stroke="#1c5ede" stroke-width="3" stroke-linecap="round" stroke-dasharray="6.5 3.5"/>
+<circle cx="22" cy="23" r="2.6" fill="#1c5ede"/>
+<circle cx="31.2" cy="13.8" r="4.6" fill="#ff5a3c" stroke="#ffffff" stroke-width="1.6"/>
+</svg>
+<div>
+<h1>МКАД Дистанс</h1>
+<p class="tagline">Автоматический расчёт пробега по дорогам Москвы и области</p>
 </div>
-
+</div>
+<button id="installBtn" class="btn btn-ghost" type="button" hidden>На главный экран</button>
+</header>
+<div class="net-warn" id="netWarn" hidden>
+<span>Похоже, сервисы карты недоступны (адреса не находятся, карта серая). Если на устройстве включён <b>VPN</b> — отключите его и обновите страницу.</span>
+<button type="button" class="net-warn-close" id="netWarnClose" aria-label="Скрыть предупреждение">×</button>
+</div>
+<main class="layout">
+<!-- ЛЕВАЯ КОЛОНКА -->
+<section class="col-main">
+<!-- РЕЖИМ -->
+<section class="card mode-card">
+<h2 class="card-title">Режим
+<span class="help-wrap">
+<button type="button" class="help-mark" id="helpMarkMode" aria-label="О режимах работы">?</button>
+<span class="help-tip" role="tooltip"><b>Калькулятор</b> — бесплатный расчёт пробега и стоимости аренды без регистрации. <b>Оформить заказ</b> — онлайн-заказ спецтехники: расширенные настройки, сохранение расчётов, документы. Режим появится после введения регистрации; пока посмотрите <a href="#" id="modePresentationLink" target="_blank" rel="noopener">презентацию режимов</a>.</span>
+</span>
+</h2>
+<!-- TODO: заменить ссылку "#" у modePresentationLink на реальную презентацию -->
+<div class="seg" id="modeSeg">
+<button type="button" class="seg-btn is-active" id="modeCalcBtn" aria-pressed="true">Калькулятор</button>
+<button type="button" class="seg-btn is-locked" id="modeOrderBtn" aria-pressed="false">Оформить заказ</button>
+</div>
+</section>
+<!-- МАРШРУТ (сворачиваемая секция) -->
+<section class="card section" id="routeSection">
+<div class="section-head" id="routeHead" role="button" aria-expanded="true" tabindex="-1">
+<h2 class="card-title section-title">Маршрут
+<span class="help-wrap">
+<button type="button" class="help-mark" id="helpMarkRoute" aria-label="Как считается пробег">?</button>
+<span class="help-tip" role="tooltip">Выбирайте адрес из подсказок или вставьте координаты вида <b>55.756, 37.617</b>. Пробег пересчитывается автоматически. Если первый адрес внутри МКАД — пробег начинается с него (0 км), для адресов снаружи МКАД добавляется выезд к ближайшему съезду.</span>
+</span>
+</h2>
+<span class="section-km" id="routeKm">— км</span>
+<span class="section-chevron" aria-hidden="true"></span>
+</div>
+<div class="section-body">
+<div class="addr-list" id="addrList"></div>
+<div class="toggle-row">
+<label class="toggle">
+<input type="checkbox" id="returnToggle" checked>
+<span class="toggle-box" aria-hidden="true"></span>
+<span class="toggle-text">Возврат на МКАД</span>
+</label>
+<span class="help-wrap">
+<button type="button" class="help-mark" id="helpMarkReturn" aria-label="О переключателе «Возврат на МКАД»">?</button>
+<span class="help-tip" role="tooltip">Переключатель «Возврат на МКАД» (включён по умолчанию) добавляет обратный пробег от последнего адреса до МКАД, если этот адрес снаружи МКАД. Если последний (или единственный) адрес внутри МКАД — переключатель блокируется и игнорируется: выезд и возврат не рассчитываются (зона 0 км).</span>
+</span>
+</div>
+<p class="toggle-hint" id="returnToggleHint"></p>
+<button id="rentBtn" class="btn btn-primary btn-rent" type="button">Стоимость аренды</button>
+<!-- ПЛАШКА С ПРОБЕГОМ -->
+<section class="plate-card" id="plateCard" data-state="idle" aria-live="polite">
+<div class="plate-left">
+<div class="plate-total">
+<span id="plateDistance">—</span><span class="plate-unit">км</span>
+</div>
+<div class="plate-status" id="plateStatus">Введите адрес — пробег посчитается автоматически</div>
+</div>
+<div class="plate-right"><span class="plate-dur" id="plateDuration"></span></div>
+</section>
+</div>
+</section>
+<!-- ТЕХНИКА (сворачиваемая секция) -->
+<section class="card section is-collapsed" id="vehicleSection">
+<div class="section-head" id="vehicleHead" role="button" aria-expanded="false" tabindex="0">
+<h2 class="card-title section-title">Выбор техники</h2>
+<span class="section-km section-summary" id="vehicleSummary"></span>
+<span class="section-chevron" aria-hidden="true"></span>
+</div>
+<div class="section-body">
+<div class="veh-field">
+<label class="spec-label veh-label" for="vehicleInput">Тип техники</label>
+<input id="vehicleInput" type="text" placeholder="Выберите тип техники" autocomplete="off">
+<div class="suggest" id="vehicleSuggest" hidden></div>
+</div>
+<div class="chassis-wrap" id="chassisWrap" hidden>
+<span class="spec-label">Шасси</span>
+<div class="seg seg-chassis" id="chassisSeg">
+<label class="seg-opt"><input type="radio" name="chassis" value="highway" checked><span>Шоссейное</span></label>
+<label class="seg-opt"><input type="radio" name="chassis" value="offroad"><span>Вездеход</span></label>
+</div>
+</div>
+<div class="spec-row" id="specWrap" hidden>
+<span class="spec-label-row">
+<label class="spec-label" for="specSelect" id="specLabel">Характеристика</label>
+<span class="help-wrap">
+<button type="button" class="help-mark" id="helpMarkSpec" aria-label="О характеристике техники">?</button>
+<span class="help-tip" role="tooltip" id="specTip"></span>
+</span>
+</span>
+<select id="specSelect" class="spec-control"></select>
+</div>
+<!-- ПЛАШКА СТОИМОСТИ АРЕНДЫ -->
+<div class="price-plate" id="pricePlate" hidden>
+<div class="price-grid">
+<label class="price-field">За смену, ₽<input id="priceShift" type="number" inputmode="decimal" min="0" step="any"></label>
+<label class="price-field">За час, ₽<input id="priceHour" type="number" inputmode="decimal" min="0" step="any"></label>
+<label class="price-field">За 1 км пробега, ₽<input id="priceKm" type="number" inputmode="decimal" min="0" step="any"></label>
+</div>
+<div class="price-total">
+<span class="price-total-label">Сумма аренды</span>
+<span class="price-total-value" id="priceTotal">—</span>
+<span class="price-total-note" id="priceTotalNote"></span>
+</div>
+</div>
+</div>
+</section>
+</section>
+<!-- ПРАВАЯ КОЛОНКА -->
+<section class="col-side">
+<div class="card map-card"><div id="map" aria-label="Карта маршрута"></div></div>
+<div class="card" id="legsCard" hidden>
+<h2 class="card-title">Участки маршрута</h2>
+<ol class="legs" id="legsList"></ol>
+</div>
+</section>
+</main>
+<footer class="footer">
+Данные карты © участники OpenStreetMap · Маршрутизация: OSRM (демо-сервер)<br>
+<button id="helpBtn" class="linklike" type="button">Как установить приложение на телефон</button>
+</footer>
+</div>
 <dialog id="helpDialog" aria-label="Установка приложения">
-  <h3>Как добавить на главный экран</h3>
-  <p><b>Android (Chrome):</b> при открытии сайта появится кнопка «Установить приложение» либо: меню ⋮ → «Добавить на главный экран».</p>
-  <p><b>iPhone (Safari):</b> нажмите кнопку «Поделиться» (квадрат со стрелкой вверх) → «На экран Домой».</p>
-  <p>Приложение откроется как отдельное мини-приложение: полноэкранно, со своей иконкой.</p>
-  <button id="helpClose" class="btn btn-primary" type="button">Понятно</button>
+<h3>Как добавить на главный экран</h3>
+<p><b>Android (Chrome):</b> при открытии сайта появится кнопка «Установить приложение» либо: меню ⋮ → «Добавить на главный экран».</p>
+<p><b>iPhone (Safari):</b> нажмите кнопку «Поделиться» (квадрат со стрелкой вверх) → «На экран Домой».</p>
+<p>Приложение откроется как отдельное мини-приложение: полноэкранно, со своей иконкой.</p>
+<button id="helpClose" class="btn btn-primary" type="button">Понятно</button>
 </dialog>
-
 <div id="toast" role="status"></div>
-
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>

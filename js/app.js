@@ -2,7 +2,7 @@ import { searchAddress, reverseGeocode } from './geocoder.js';
 import { buildRoute } from './router.js';
 import { ensureMKAD, loadMkadStatic, mkadAccessPoint, isInsideMKAD, getMKAD, mkadRingForMap } from './mkad.js';
 import { haversine } from './geo.js';
-import { VEHICLES } from './vehicles.js';
+import { VEHICLES, CHASSIS_LABELS } from './vehicles.js';
 
 /* ---------- Элементы ---------- */
 const $ = (s) => document.querySelector(s);
@@ -15,7 +15,6 @@ const legsCard = $('#legsCard');
 const legsList = $('#legsList');
 const vehicleInput = $('#vehicleInput');
 const vehicleSuggest = $('#vehicleSuggest');
-const specsForm = $('#specsForm');
 const toastEl = $('#toast');
 const installBtn = $('#installBtn');
 const helpBtn = $('#helpBtn');
@@ -24,6 +23,27 @@ const helpClose = $('#helpClose');
 const returnToggle = $('#returnToggle');
 const netWarn = document.getElementById('netWarn');
 const netWarnClose = document.getElementById('netWarnClose');
+// Стоимость аренды и секции
+const rentBtn = $('#rentBtn');
+const routeSection = $('#routeSection');
+const routeHead = $('#routeHead');
+const routeKm = $('#routeKm');
+const vehicleSection = $('#vehicleSection');
+const vehicleHead = $('#vehicleHead');
+const vehicleSummary = $('#vehicleSummary');
+const chassisWrap = $('#chassisWrap');
+const specWrap = $('#specWrap');
+const specLabel = $('#specLabel');
+const specTip = $('#specTip');
+const specSelect = $('#specSelect');
+const pricePlate = $('#pricePlate');
+const priceShift = $('#priceShift');
+const priceHour = $('#priceHour');
+const priceKm = $('#priceKm');
+const priceTotal = $('#priceTotal');
+const priceTotalNote = $('#priceTotalNote');
+const modeCalcBtn = $('#modeCalcBtn');
+const modeOrderBtn = $('#modeOrderBtn');
 
 /* ---------- Карта ---------- */
 const map = L.map('map', { zoomControl: true }).setView([55.72, 37.62], 10);
@@ -42,13 +62,17 @@ let recalcTimer = null;
 let calcSeq = 0;
 let deferredInstall = null;
 let selectedVehicleId = null;
-const specValues = {};
 const routeCache = new Map();
+// Стоимость аренды
+let appMode = 'route';      // 'route' | 'rent' (в будущем 'order' — «Оформить заказ»)
+let lastDistanceM = null;   // пробег последнего успешного расчёта (м); при ошибке расчёта НЕ меняется
+let rentOption = null;      // выбранный вариант характеристики
 
 /* ---------- Утилиты ---------- */
 const kmFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const rubFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const fmtKm = (meters) => kmFmt.format(meters / 1000) + ' км';
-
+const fmtRub = (v) => rubFmt.format(Math.round(v)) + ' ₽';
 function fmtDur(seconds){
   const totalMin = Math.max(1, Math.round(seconds / 60));
   const h = Math.floor(totalMin / 60);
@@ -60,28 +84,28 @@ function toast(msg){
   toastEl.classList.add('show');
   clearTimeout(toastEl._t);
   toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 4000);
-    /* Предупреждение о недоступности сервисов (типично при включённом VPN) */
-  let netWarnShown = false;
-  let tileErrorCount = 0;
-  function showNetWarning(){
-    if (netWarnShown || !netWarn) return;
-    netWarnShown = true;
-    netWarn.hidden = false;
-  }
-  tileLayer.on('tileerror', () => {
-    tileErrorCount++;
-    if (tileErrorCount >= 3) showNetWarning();
-  });
-  if (netWarnClose){
-    netWarnClose.addEventListener('click', () => { netWarn.hidden = true; });
-  }
+}
+
+/* Предупреждение о недоступности сервисов (типично при включённом VPN) */
+let netWarnShown = false;
+let tileErrorCount = 0;
+function showNetWarning(){
+  if (netWarnShown || !netWarn) return;
+  netWarnShown = true;
+  netWarn.hidden = false;
+}
+tileLayer.on('tileerror', () => {
+  tileErrorCount++;
+  if (tileErrorCount >= 3) showNetWarning();
+});
+if (netWarnClose){
+  netWarnClose.addEventListener('click', () => { netWarn.hidden = true; });
 }
 
 /* ---------- Строки адресов ---------- */
 function createRow(){
   const id = ++rowId;
   const row = { id, latlon: null, inside: null, seq: 0, ctrl: null, timer: null };
-
   const wrap = document.createElement('div');
   wrap.className = 'addr-row';
   const num = document.createElement('div');
@@ -103,14 +127,11 @@ function createRow(){
   del.className = 'addr-del';
   del.setAttribute('aria-label', 'Удалить адрес');
   del.textContent = '×';
-
   field.append(input, suggest, meta);
   wrap.append(num, field, del);
   addrList.append(wrap);
-
   row.wrap = wrap; row.num = num; row.input = input;
   row.suggest = suggest; row.meta = meta;
-
   input.addEventListener('input', () => {
     const wasConfirmed = !!row.latlon;
     row.latlon = null;
@@ -127,13 +148,11 @@ function createRow(){
     }, 150);
   });
   del.addEventListener('click', () => removeRow(row));
-
   rows.push(row);
   renumber();
   updateGhostStates();
   return row;
 }
-
 function removeRow(row){
   row.wrap.remove();
   rows = rows.filter(r => r !== row);
@@ -169,20 +188,17 @@ function parseCoords(str){
   if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return { lat: a, lon: b };
   return null;
 }
-
 async function fetchSuggestions(row){
   const q = row.input.value.trim();
   row.seq++;
   const my = row.seq;
   if (row.ctrl) row.ctrl.abort();
   if (q.length < 3){ hideSuggest(row); return; }
-
   const coords = parseCoords(q);
   row.ctrl = new AbortController();
   row.suggest.textContent = '';
   row.suggest.append(makeSuggestItem('Ищем…', null, true));
   row.suggest.hidden = false;
-
   try {
     if (coords){
       const name = await reverseGeocode(coords.lat, coords.lon, row.ctrl.signal);
@@ -221,7 +237,6 @@ async function fetchSuggestions(row){
     row.suggest.hidden = false;
   }
 }
-
 function confirmRow(row, lonlat, label){
   if (row.ctrl) row.ctrl.abort();
   row.latlon = lonlat;
@@ -234,7 +249,6 @@ function confirmRow(row, lonlat, label){
   scheduleRecalc();
   if (added) added.input.focus();
 }
-
 function makeSuggestItem(title, sub, muted){
   const div = document.createElement('div');
   div.className = 'suggest-item' + (muted ? ' muted' : '');
@@ -333,12 +347,10 @@ function confirmedPrefix(){
 function routeCacheKey(pts){
   return pts.map(p => p[0].toFixed(5) + ',' + p[1].toFixed(5)).join('|');
 }
-
 async function recalc(){
   const seq = ++calcSeq;
   const used = confirmedPrefix();
   updateReturnToggle();
-
   if (!used.length){
     plateCard.dataset.state = 'idle';
     plateDistance.textContent = '—';
@@ -346,12 +358,13 @@ async function recalc(){
     plateDuration.textContent = '';
     legsCard.hidden = true;
     routeLayer.clearLayers();
+    lastDistanceM = null;
+    updateRouteSummary();
+    recalcRentTotal();
     return;
   }
-
   plateCard.dataset.state = 'loading';
   plateStatus.textContent = 'Пересчитываем… Адресов: ' + used.length;
-
   try {
     const first = used[0].latlon;
     const last = used[used.length - 1].latlon;
@@ -359,7 +372,6 @@ async function recalc(){
     const lastInside = isInsideMKAD(last) === true;
     const needStart = !firstInside;                          // первый внутри МКАД -> старт с адреса (0 км)
     const needReturn = !lastInside && returnToggle.checked;  // внутри МКАД возврат игнорируется даже при включённом тумблере
-
     // endShiftKm: сдвиг точки финиша вдоль стороны МКАД.
     // Кандидат A (-0.3) — чуть до ближайшей точки, чтобы не проезжать рампу;
     // кандидат B (+0.5) — с запасом после (гарантия достижимости без разворота).
@@ -384,7 +396,6 @@ async function recalc(){
       }
       return { pts, bearings, labels, mkadPts };
     };
-
     const fetchRoute = async (pl) => {
       const key = routeCacheKey(pl.pts) + '|' + pl.bearings.map(b => (b === null ? '' : b)).join(';');
       let r = routeCache.get(key);
@@ -395,9 +406,7 @@ async function recalc(){
       }
       return r;
     };
-
     const planA = buildPlan(-0.3);
-
     // Нет ни выезда, ни возврата (например, одиночный адрес внутри МКАД): 0 км
     if (planA.pts.length < 2){
       if (seq !== calcSeq) return;
@@ -407,9 +416,11 @@ async function recalc(){
       plateStatus.textContent = 'Без выезда и возврата к МКАД — 0 км';
       legsCard.hidden = true;
       drawAddressesOnly(used.map(r => r.latlon));
+      lastDistanceM = 0;
+      updateRouteSummary();
+      recalcRentTotal();
       return;
     }
-
     // Есть возврат — считаем двух кандидатов параллельно и берём короткий маршрут
     const plans = needReturn ? [planA, buildPlan(0.5)] : [planA];
     const routes = await Promise.all(plans.map(fetchRoute));
@@ -419,7 +430,6 @@ async function recalc(){
     }
     let plan = plans[idx];
     let route = routes[idx];
-
     // Предохранитель от петель-крюков
     const geoSum = plan.pts.reduce((acc, p, i) => (i ? acc + haversine(plan.pts[i - 1], p) : 0), 0);
     if (route.distanceM > geoSum + 4000){
@@ -431,7 +441,6 @@ async function recalc(){
       }
     }
     if (seq !== calcSeq) return;
-
     plateCard.dataset.state = 'ok';
     plateDistance.textContent = fmtKm(route.distanceM);
     plateDuration.textContent = '≈ ' + fmtDur(route.durationS);
@@ -440,7 +449,6 @@ async function recalc(){
       : (lastInside ? 'возврат не рассчитывается (последний адрес внутри МКАД)'
                     : 'возврат выключен переключателем');
     plateStatus.textContent = 'Адресов: ' + used.length + ' · ' + startTxt + ', ' + endTxt;
-
     renderLegs(route.legs, plan.labels);
     // Маркеры МКАД ставим в фактические концы маршрута — точка всегда совпадает с линией
     const geom = route.geometry;
@@ -448,6 +456,9 @@ async function recalc(){
     if (needStart) mkadDraw.push(geom[0]);
     if (needReturn) mkadDraw.push(geom[geom.length - 1]);
     drawOnMap(route.geometry, mkadDraw, used.map(r => r.latlon));
+    lastDistanceM = route.distanceM;
+    updateRouteSummary();
+    recalcRentTotal();
   } catch (err){
     if (seq !== calcSeq) return;
     console.error(err);
@@ -455,9 +466,9 @@ async function recalc(){
     plateCard.dataset.state = 'error';
     plateStatus.textContent = err.message || 'Не удалось рассчитать маршрут';
     plateDuration.textContent = '';
+    // lastDistanceM намеренно НЕ меняем при ошибке: остаётся последний известный пробег
   }
 }
-
 function renderLegs(legs, labels){
   legsList.textContent = '';
   legs.forEach((leg, i) => {
@@ -473,7 +484,6 @@ function renderLegs(legs, labels){
   });
   legsCard.hidden = false;
 }
-
 function drawAddressesOnly(addrPts){
   routeLayer.clearLayers();
   addrPts.forEach((p, i) => {
@@ -489,7 +499,6 @@ function drawAddressesOnly(addrPts){
   const bounds = routeLayer.getBounds();
   if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
 }
-
 function drawOnMap(geometry, mkadPts, addrPts){
   routeLayer.clearLayers();
   L.polyline(geometry.map(p => [p[1], p[0]]), {
@@ -514,7 +523,11 @@ function drawOnMap(geometry, mkadPts, addrPts){
   if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
 }
 
-/* ---------- Выбор техники ---------- */
+/* ---------- Выбор техники и стоимость аренды ---------- */
+function chassisValue(){
+  const r = document.querySelector('input[name="chassis"]:checked');
+  return r ? r.value : 'highway';
+}
 function initVehiclePicker(){
   vehicleInput.addEventListener('focus', () => showVehicles(vehicleInput.value.trim()));
   vehicleInput.addEventListener('input', () => showVehicles(vehicleInput.value.trim()));
@@ -547,7 +560,7 @@ function selectVehicle(v){
   selectedVehicleId = v.id;
   vehicleInput.value = v.name;
   vehicleSuggest.hidden = true;
-  renderSpecs(v);
+  renderVehicleDetails(v);
 }
 function onVehicleKeys(e){
   if (vehicleSuggest.hidden) return;
@@ -559,52 +572,138 @@ function onVehicleKeys(e){
   else if (e.key === 'Enter'){ e.preventDefault(); (idx >= 0 ? items[idx] : items[0]).dispatchEvent(new Event('pointerdown')); }
   else if (e.key === 'Escape'){ vehicleSuggest.hidden = true; }
 }
-function renderSpecs(v){
-  specsForm.textContent = '';
-  if (!v) return;
-  if (!v.specs || !v.specs.length){
-    const p = document.createElement('p');
-    p.className = 'specs-empty';
-    p.textContent = 'Характеристики для «' + v.name + '» скоро появятся.';
-    specsForm.append(p);
+/* Тип выбран: тумблер «Шасси» (если нужен) + список характеристик с тултипом */
+function renderVehicleDetails(v){
+  rentOption = null;
+  pricePlate.hidden = true;
+  // Шасси по умолчанию ВСЕГДА «Шоссейное»
+  const hw = document.querySelector('input[name="chassis"][value="highway"]');
+  if (hw) hw.checked = true;
+  chassisWrap.hidden = !v.hasChassis;
+  specLabel.textContent = v.specName;
+  specTip.textContent = v.specTooltip;
+  specSelect.textContent = '';
+  const ph = document.createElement('option');
+  ph.value = ''; ph.textContent = 'Выберите…';
+  specSelect.append(ph);
+  (v.options || []).forEach(o => {
+    const op = document.createElement('option');
+    op.value = o; op.textContent = o;
+    specSelect.append(op);
+  });
+  specSelect.value = '';
+  specWrap.hidden = false;
+  updateVehicleSummary();
+}
+function getBasePrices(v, option, chassis){
+  const byOption = (v.prices && v.prices[option]) || null;
+  if (!byOption) return null;
+  return byOption[chassis] || byOption.highway || null;
+}
+function fillBasePrices(v, option, chassis){
+  const p = getBasePrices(v, option, chassis);
+  priceShift.value = p ? p.shift : 0;
+  priceHour.value = p ? p.hour : 0;
+  priceKm.value = p ? p.km : 0;
+}
+function priceVal(el){
+  const n = parseFloat(el.value);
+  return isFinite(n) && n > 0 ? n : 0;
+}
+/* ФОРМУЛА (подтверждена пользователем): Сумма = цена за смену + Пробег (км) × цена за 1 км.
+   Цена за час — справочное поле (пригодится для переработок на следующих этапах). */
+function recalcRentTotal(){
+  if (!rentOption) return;
+  const shift = priceVal(priceShift);
+  const km = priceVal(priceKm);
+  const kmTotal = lastDistanceM == null ? 0 : lastDistanceM / 1000;
+  const total = shift + kmTotal * km;
+  priceTotal.textContent = fmtRub(total);
+  if (lastDistanceM == null){
+    priceTotalNote.textContent = '= смена ' + fmtRub(shift) + ' (пробег пока не рассчитан — введите адрес в разделе «Маршрут»)';
+  } else {
+    priceTotalNote.textContent = '= смена ' + fmtRub(shift) + ' + пробег ' + kmFmt.format(kmTotal) + ' км × ' + fmtRub(km) + '/км';
+  }
+}
+function updateVehicleSummary(){
+  const v = VEHICLES.find(x => x.id === selectedVehicleId);
+  if (!v){ vehicleSummary.textContent = ''; return; }
+  const parts = [v.name];
+  if (rentOption) parts.push(rentOption);
+  if (v.hasChassis) parts.push(CHASSIS_LABELS[chassisValue()] || 'Шоссейное');
+  vehicleSummary.textContent = parts.join(' · ');
+}
+// Смена характеристики: плашка появляется, цены сбрасываются на базовые
+specSelect.addEventListener('change', () => {
+  const v = VEHICLES.find(x => x.id === selectedVehicleId);
+  rentOption = specSelect.value || null;
+  if (!v || !rentOption){
+    pricePlate.hidden = true;
+    updateVehicleSummary();
     return;
   }
-  specValues[v.id] = specValues[v.id] || {};
-  v.specs.forEach(spec => {
-    const row = document.createElement('div');
-    row.className = 'spec-row';
-    const label = document.createElement('label');
-    label.className = 'spec-label';
-    label.textContent = spec.name + (spec.unit ? ', ' + spec.unit : '');
-    let control;
-    if (spec.type === 'select'){
-      control = document.createElement('select');
-      const ph = document.createElement('option');
-      ph.value = ''; ph.textContent = 'Выберите…';
-      control.append(ph);
-      (spec.options || []).forEach(o => {
-        const op = document.createElement('option');
-        op.value = o; op.textContent = o;
-        control.append(op);
-      });
-    } else if (spec.type === 'number'){
-      control = document.createElement('input');
-      control.type = 'number'; control.inputMode = 'decimal'; control.step = 'any';
-      if (spec.unit) control.placeholder = spec.unit;
-    } else {
-      control = document.createElement('input');
-      control.type = 'text';
+  fillBasePrices(v, rentOption, chassisValue());
+  pricePlate.hidden = false;
+  recalcRentTotal();
+  updateVehicleSummary();
+});
+// Смена шасси влияет на цену: цены сбрасываются на базовые для нового шасси
+document.querySelectorAll('input[name="chassis"]').forEach(r => {
+  r.addEventListener('change', () => {
+    const v = VEHICLES.find(x => x.id === selectedVehicleId);
+    if (v && rentOption){
+      fillBasePrices(v, rentOption, chassisValue());
+      recalcRentTotal();
     }
-    control.className = 'spec-control';
-    control.id = 'spec-' + v.id + '-' + spec.id;
-    label.htmlFor = control.id;
-    const saved = specValues[v.id][spec.id];
-    if (saved !== undefined && saved !== '') control.value = saved;
-    control.addEventListener('change', () => { specValues[v.id][spec.id] = control.value; });
-    row.append(label, control);
-    specsForm.append(row);
+    updateVehicleSummary();
   });
+});
+// Ручные правки цен — пересчёт суммы без сброса остальных полей
+[priceShift, priceHour, priceKm].forEach(inp => inp.addEventListener('input', recalcRentTotal));
+
+/* ---------- Секции и режимы (аккордеон «Маршрут» / «Выбор техники») ---------- */
+function updateRouteSummary(){
+  routeKm.textContent = lastDistanceM == null ? '— км' : fmtKm(lastDistanceM);
 }
+function setMode(mode){
+  if (mode !== 'route' && mode !== 'rent') return;
+  appMode = mode;
+  const rent = mode === 'rent';
+  document.body.classList.toggle('mode-rent', rent);
+  routeSection.classList.toggle('is-collapsed', rent);
+  vehicleSection.classList.toggle('is-collapsed', !rent);
+  routeHead.setAttribute('aria-expanded', String(!rent));
+  vehicleHead.setAttribute('aria-expanded', String(rent));
+  routeHead.tabIndex = rent ? 0 : -1;
+  vehicleHead.tabIndex = rent ? -1 : 0;
+  updateVehicleSummary();
+  if (rent){
+    vehicleSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    // Карта была скрыта — просим Leaflet пересчитать размер, иначе тайлы отрисуются криво
+    requestAnimationFrame(() => map.invalidateSize());
+  }
+}
+rentBtn.addEventListener('click', () => setMode('rent'));
+routeHead.addEventListener('click', () => {
+  if (routeSection.classList.contains('is-collapsed')) setMode('route');
+});
+vehicleHead.addEventListener('click', () => {
+  if (vehicleSection.classList.contains('is-collapsed')) setMode('rent');
+});
+[[routeHead, routeSection, () => setMode('route')],
+ [vehicleHead, vehicleSection, () => setMode('rent')]].forEach(([head, sec, act]) => {
+  head.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && sec.classList.contains('is-collapsed')){
+      e.preventDefault();
+      act();
+    }
+  });
+});
+modeCalcBtn.addEventListener('click', () => setMode('route'));
+modeOrderBtn.addEventListener('click', () => {
+  toast('Режим «Оформить заказ» появится позже — после введения регистрации');
+});
 
 /* ---------- Плашка и клавиатура на мобильном ---------- */
 document.addEventListener('focusin', (e) => {
@@ -620,22 +719,26 @@ document.addEventListener('focusout', () => {
   }, 120);
 });
 
-/* ---------- Маркеры «?» (у «Маршрут» и у переключателя) ---------- */
-document.querySelectorAll('.help-mark').forEach(btn => {
-  btn.addEventListener('click', (e) => {
+/* ---------- Маркеры «?» (Маршрут, Возврат на МКАД, Режим, характеристики) ---------- */
+/* Делегирование: динамически создаваемые тултипы работают так же, как статические */
+document.addEventListener('click', (e) => {
+  const mark = e.target.closest('.help-mark');
+  if (mark){
     e.stopPropagation();
-    btn.closest('.help-wrap').classList.toggle('open');
-  });
-});
-/* Тап по самому сообщению тултипа тоже закрывает его (удобно на мобильных) */
-document.querySelectorAll('.help-tip').forEach(tip => {
-  tip.addEventListener('click', (e) => {
+    const wrap = mark.closest('.help-wrap');
+    const wasOpen = wrap.classList.contains('open');
+    document.querySelectorAll('.help-wrap.open').forEach(w => w.classList.remove('open'));
+    if (!wasOpen) wrap.classList.add('open');
+    return;
+  }
+  if (e.target.closest('.help-tip a')) return; // ссылки внутри тултипа кликабельны
+  const tip = e.target.closest('.help-tip');
+  if (tip){
     e.stopPropagation();
     const wrap = tip.closest('.help-wrap');
     if (wrap) wrap.classList.remove('open');
-  });
-});
-document.addEventListener('click', (e) => {
+    return;
+  }
   document.querySelectorAll('.help-wrap.open').forEach(w => {
     if (!w.contains(e.target)) w.classList.remove('open');
   });
@@ -679,6 +782,7 @@ if ('serviceWorker' in navigator &&
 createRow();
 initVehiclePicker();
 updateReturnToggle();
+updateRouteSummary();
 drawMkadRing();
 onMkadReady();
 returnToggle.addEventListener('change', scheduleRecalc);
