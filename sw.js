@@ -1,4 +1,4 @@
-const CACHE_STATIC = 'mkad-static-v6';
+const CACHE_STATIC = 'mkad-static-v17';
 const APP_SHELL = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const APP_SHELL = [
   './js/router.js',
   './js/vehicles.js',
   './js/config.js',
+  './data/mkad-yandex.txt',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-maskable.svg',

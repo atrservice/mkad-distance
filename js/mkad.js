@@ -1,6 +1,7 @@
 import { haversine, nearestOnLines, pointInPolygon, lineLength } from './geo.js';
+import { MKAD_JUNCTIONS_OVERRIDE } from './config.js';
 
-// Километровое кольцо МКАД (108 точек). Основа для точек въезда/съезда.
+// Аварийное километровое кольцо (108 точек), если файла данных нет
 export const MKAD_FALLBACK_RING = [
   [37.842762, 55.774558], [37.842789, 55.765220], [37.842627, 55.755723], [37.841828, 55.747399],
   [37.841217, 55.739103], [37.840175, 55.730482], [37.839160, 55.721939], [37.837121, 55.712203],
@@ -31,109 +32,183 @@ export const MKAD_FALLBACK_RING = [
   [37.838926, 55.811599], [37.840004, 55.802781], [37.840965, 55.793991], [37.841576, 55.785017]
 ];
 
-const LS_KEY = 'mkad-geometry-v4';
+const GEOM_URL = 'data/mkad-yandex.txt';
+const LS_KEY = 'mkad-junctions-v1';
 const TTL_MS = 60 * 24 * 60 * 60 * 1000;
 
 const OVERPASS_ENDPOINTS = [
+  'https://overpass.openstreetmap.ru/api/interpreter',
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter'
 ];
+// Только съезды (рампы), примыкающие к МКАД
 const QUERY =
-  '[out:json][timeout:20];' +
+  '[out:json][timeout:40];' +
   'way["highway"~"^(trunk|primary|secondary|tertiary|motorway)$"]["name"="МКАД"]' +
-  '(around:23000,55.72,37.62);out geom;';
+  '(around:23000,55.72,37.62)->.mkad;' +
+  'node(w.mkad)->.mn;' +
+  'way(bn.mn)["highway"~"^(trunk_link|primary_link|secondary_link|tertiary_link|motorway_link)$"]->.links;' +
+  '(.mkad;.links;);' +
+  'out geom;';
 
-const SHIFT_KM = 0.4;        // сдвиг вдоль кольца, чтобы съезд был впереди по ходу
-const SIDE_OFFSET_M = 15;    // смещение к нужной стороне (внешняя/внутренняя)
-
-// Состояние доступно СРАЗУ (километровое кольцо), живая геометрия догружается фоном
 let state = {
   lines: [MKAD_FALLBACK_RING],
   polygon: MKAD_FALLBACK_RING,
   source: 'fallback',
-  drawingRing: ringClosed(MKAD_FALLBACK_RING)
+  drawingRing: ringClosed(MKAD_FALLBACK_RING),
+  junctions: mergeOverride([]),
+  carriageways: null
 };
 let loading = null;
-let upgraded = false;
+let staticLoaded = false;
 
 export function getMKAD(){ return state; }
 
-// Фоновая догрузка живой геометрии; не блокирует расчёты
-export function ensureMKAD(){
-  if (upgraded) return Promise.resolve(state);
-  if (!loading) loading = load().finally(() => { loading = null; });
-  return loading;
+function mergeOverride(parsed){
+  const base = Array.isArray(parsed) ? parsed : [];
+  if (Array.isArray(MKAD_JUNCTIONS_OVERRIDE) && MKAD_JUNCTIONS_OVERRIDE.length){
+    return MKAD_JUNCTIONS_OVERRIDE.map(j => ({ lon: j.lon, lat: j.lat, side: j.side })).concat(base);
+  }
+  return base;
 }
 
-async function load(){
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw){
-      const cached = JSON.parse(raw);
-      if (cached && cached.ts && Date.now() - cached.ts < TTL_MS &&
-          Array.isArray(cached.lines) && cached.lines.length){
-        upgraded = true;
-        return setState(cached.lines, cached.ring || MKAD_FALLBACK_RING, 'cache');
-      }
-    }
-  } catch (e) { /* кэш повреждён */ }
+/* ---------- Быстрая локальная геометрия (файл Яндекса) ---------- */
+export function loadMkadStatic(){
+  if (staticLoaded) return Promise.resolve(state);
+  return loadStaticGeometry();
+}
 
-  for (const endpoint of OVERPASS_ENDPOINTS){
-    try {
-      const ways = await fetchFromOverpass(endpoint);
-      if (ways.length){
-        const saved = saveMerged(mergeSegments(ways), 'overpass');
-        if (saved){ upgraded = true; return saved; }
-      }
-    } catch (e) {
-      console.warn('Overpass недоступен:', endpoint, e);
-    }
-  }
-
+async function loadStaticGeometry(){
   try {
-    const lines = await fetchFromNominatim();
-    if (lines.length){
-      const saved = saveMerged(mergeSegments(lines), 'nominatim');
-      if (saved){ upgraded = true; return saved; }
-    }
-  } catch (e) {
-    console.warn('Nominatim geometry недоступен:', e);
+    const res = await fetch(GEOM_URL);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const txt = await res.text();
+    const s = txt.indexOf('[[[');
+    const e = txt.lastIndexOf(']]]');
+    if (s === -1 || e === -1 || e <= s) throw new Error('не найдены координаты');
+    const coords = JSON.parse(txt.slice(s, e + 3));
+    const rings = (Array.isArray(coords) ? coords : [])
+      .filter(line => Array.isArray(line) && line.length > 50)
+      .map(line => line.map(c => [c[0], c[1]]));
+    if (!rings.length) throw new Error('пусто');
+    // Внешняя сторона = кольцо большей площади
+    rings.sort((a, b) => Math.abs(ringArea(b)) - Math.abs(ringArea(a)));
+    const outer = makeRing(rings[0]);
+    const inner = rings[1] ? makeRing(rings[1]) : null;
+    state.carriageways = inner ? { outer, inner } : { outer };
+    state.polygon = outer.pts;
+    state.drawingRing = ringClosed(outer.pts);
+    state.lines = inner
+      ? [outer.pts, inner.pts, MKAD_FALLBACK_RING]
+      : [outer.pts, MKAD_FALLBACK_RING];
+    state.source = 'yandex';
+    staticLoaded = true;
+    console.info('MKAD: геометрия Яндекса загружена, сторон:', inner ? 2 : 1);
+  } catch (e){
+    console.warn('MKAD: файл геометрии не использован, остаётся км-кольцо:', e);
   }
   return state;
 }
 
-function ringSane(ring){
-  if (!ring || ring.length < 50) return false;
-  let lonMin = Infinity, lonMax = -Infinity, latMin = Infinity, latMax = -Infinity;
-  for (const p of ring){
-    if (p[0] < lonMin) lonMin = p[0];
-    if (p[0] > lonMax) lonMax = p[0];
-    if (p[1] < latMin) latMin = p[1];
-    if (p[1] > latMax) latMax = p[1];
+function ringArea(pts){
+  let sx = 0, sy = 0, area = 0;
+  const kx = Math.cos(pts[0][1] * Math.PI / 180);
+  const m = pts.map(p => [(p[0] - pts[0][0]) * kx * 111320, (p[1] - pts[0][1]) * 110540]);
+  for (let i = 0; i < m.length; i++){
+    const a = m[i], b = m[(i + 1) % m.length];
+    area += a[0] * b[1] - b[0] * a[1];
+    sx += a[0]; sy += a[1];
   }
-  return lonMin < 37.45 && lonMax > 37.75 &&
-         latMin < 55.65 && latMax > 55.85 &&
-         (lonMax - lonMin) < 1.2 && (latMax - latMin) < 0.8;
+  return area / 2;
 }
 
-function saveMerged(merged, source){
-  const { ring, closed, rest, lengthM } = merged;
-  if (!ring) return null;
-  const useRing = closed && lengthM > 100000 && lengthM < 130000 && ringSane(ring);
-  const polygon = useRing ? ring : MKAD_FALLBACK_RING;
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify({
-      ts: Date.now(),
-      lines: [ring, ...rest],
-      ring: useRing ? ringClosed(ring) : null
-    }));
-  } catch (e) { /* нет места */ }
-  return setState([ring, ...rest], polygon, source);
+function makeRing(ptsRaw){
+  let pts = ptsRaw.slice();
+  const f = pts[0], l = pts[pts.length - 1];
+  if (pts.length > 2 && f[0] === l[0] && f[1] === l[1]) pts = pts.slice(0, -1);
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++){
+    cum.push(cum[i - 1] + haversine(pts[i - 1], pts[i]) / 1000);
+  }
+  const len = cum[cum.length - 1] + haversine(pts[pts.length - 1], pts[0]) / 1000;
+  // +1, если порядок точек против часовой стрелки
+  const ccwSign = ringArea(pts) > 0 ? 1 : -1;
+  return { pts, cum, len, ccwSign };
+}
+
+function segLenKm(ring, i){
+  const next = i + 1 < ring.cum.length ? ring.cum[i + 1] : ring.len;
+  return next - ring.cum[i];
+}
+function pointAt(ring, t){
+  let tt = ((t % ring.len) + ring.len) % ring.len;
+  let i = 0;
+  while (i < ring.cum.length - 1 && ring.cum[i + 1] < tt) i++;
+  const a = ring.pts[i], b = ring.pts[(i + 1) % ring.pts.length];
+  const f = segLenKm(ring, i) > 0 ? (tt - ring.cum[i]) / segLenKm(ring, i) : 0;
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+}
+function nearestOnRing(ring, p){
+  const kx = Math.cos(p[1] * Math.PI / 180);
+  let best = { dist: Infinity, t: 0, point: ring.pts[0] };
+  for (let i = 0; i < ring.pts.length; i++){
+    const a = ring.pts[i], b = ring.pts[(i + 1) % ring.pts.length];
+    const ax = a[0] * kx, ay = a[1], bx = b[0] * kx, by = b[1], px = p[0] * kx, py = p[1];
+    const vx = bx - ax, vy = by - ay;
+    const len2 = vx * vx + vy * vy;
+    let t = len2 === 0 ? 0 : ((px - ax) * vx + (py - ay) * vy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const point = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    const dist = haversine(p, point);
+    if (dist < best.dist) best = { dist, t: ring.cum[i] + t * segLenKm(ring, i), point };
+  }
+  return best;
+}
+function bearingBetween(a, b){
+  const kx = Math.cos(a[1] * Math.PI / 180);
+  const east = (b[0] - a[0]) * kx;
+  const north = b[1] - a[1];
+  return Math.round((Math.atan2(east, north) * 180 / Math.PI + 360) % 360);
+}
+
+/* ---------- Съезды из OSM (фон, необязательно) ---------- */
+export function ensureMKAD(){
+  if (loading) return loading;
+  loading = (async () => {
+    await loadStaticGeometry();
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw){
+        const cached = JSON.parse(raw);
+        if (cached && cached.ts && Date.now() - cached.ts < TTL_MS && Array.isArray(cached.junctions)){
+          state.junctions = mergeOverride(cached.junctions);
+          return state;
+        }
+      }
+    } catch (e) { /* кэш повреждён */ }
+    for (const endpoint of OVERPASS_ENDPOINTS){
+      try {
+        const { mkadWays, linkWays } = await fetchFromOverpass(endpoint);
+        if (mkadWays.length){
+          const j = buildJunctions(mkadWays, linkWays);
+          if (j.length){
+            try { localStorage.setItem(LS_KEY, JSON.stringify({ ts: Date.now(), junctions: j })); } catch (e) {}
+            state.junctions = mergeOverride(j);
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn('Overpass недоступен:', endpoint, e);
+      }
+    }
+    return state;
+  })().finally(() => { loading = null; });
+  return loading;
 }
 
 async function fetchFromOverpass(endpoint){
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 22000);
+  const timer = setTimeout(() => ctrl.abort(), 45000);
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -143,96 +218,56 @@ async function fetchFromOverpass(endpoint){
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    const lines = [];
+    const mkadWays = [], linkWays = [];
     for (const el of data.elements || []){
-      if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length > 1){
-        lines.push(el.geometry.map(n => [n.lon, n.lat]));
-      }
+      if (el.type !== 'way' || !Array.isArray(el.geometry) || el.geometry.length < 2) continue;
+      const line = el.geometry.map(n => [n.lon, n.lat]);
+      const hw = (el.tags && el.tags.highway) || '';
+      if (/_(link)$/.test(hw)) linkWays.push(line);
+      else mkadWays.push(line);
     }
-    return lines;
+    return { mkadWays, linkWays };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function fetchFromNominatim(){
-  const params = new URLSearchParams({
-    format: 'jsonv2', q: 'МКАД', limit: '3', dedupe: '1',
-    countrycodes: 'ru', polygon_geojson: '1'
-  });
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20000);
-  try {
-    const res = await fetch('https://nominatim.openstreetmap.org/search?' + params.toString(), {
-      signal: ctrl.signal, headers: { 'Accept': 'application/json' }
+function buildJunctions(mkadWays, linkWays){
+  const nodeKeys = new Set();
+  for (const w of mkadWays){
+    for (const p of w) nodeKeys.add(p[0].toFixed(6) + ',' + p[1].toFixed(6));
+  }
+  const seen = new Set();
+  const pts = [];
+  for (const w of linkWays){
+    for (const p of [w[0], w[w.length - 1]]){
+      const key = p[0].toFixed(6) + ',' + p[1].toFixed(6);
+      if (nodeKeys.has(key) && !seen.has(key)){ seen.add(key); pts.push([p[0], p[1]]); }
+    }
+  }
+  if (!pts.length) return [];
+  // Сторона: по близости к линии внешней/внутренней, иначе по смещению от км-кольца
+  if (state.carriageways && state.carriageways.inner){
+    return pts.map(p => {
+      const dOut = nearestOnRing(state.carriageways.outer, p).dist;
+      const dIn = nearestOnRing(state.carriageways.inner, p).dist;
+      return { lon: p[0], lat: p[1], side: dOut <= dIn ? 'outer' : 'inner' };
     });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    const lines = [];
-    for (const item of data || []){
-      const g = item.geojson;
-      if (!g) continue;
-      const push = (line) => lines.push(line.map(c => [c[0], c[1]]));
-      if (g.type === 'LineString') push(g.coordinates);
-      else if (g.type === 'MultiLineString') g.coordinates.forEach(push);
-      else if (g.type === 'Polygon') g.coordinates.forEach(push);
-      else if (g.type === 'MultiPolygon') g.coordinates.forEach(poly => poly.forEach(push));
-    }
-    return lines;
-  } finally {
-    clearTimeout(timer);
   }
+  const offs = pts.map(p => {
+    const r = nearestOnKmRing(p);
+    const P = pointAtKm(r.t);
+    const d = dirAtKm(r.t);
+    const nL = [-d[1], d[0]];
+    const kx = Math.cos(P[1] * Math.PI / 180);
+    return ((p[0] - P[0]) * kx * 111320) * nL[0] + ((p[1] - P[1]) * 110540) * nL[1];
+  });
+  let thr = 0;
+  if (pts.length >= 2) thr = (Math.min(...offs) + Math.max(...offs)) / 2;
+  return pts.map((p, i) => ({ lon: p[0], lat: p[1], side: offs[i] > thr ? 'outer' : 'inner' }));
 }
 
-function mergeSegments(segs){
-  const rest = segs.filter(s => Array.isArray(s) && s.length >= 2);
-  if (!rest.length) return { ring: null, closed: false, rest: [], lengthM: 0 };
-  rest.sort((a, b) => b.length - a.length);
-  const ring = rest.shift().slice();
-  let lengthM = lineLength(ring);
-  let closed = false;
-  const GAP_M = 150;
-  while (rest.length){
-    if (lengthM > 95000 && haversine(ring[ring.length - 1], ring[0]) < GAP_M){ closed = true; break; }
-    const end = ring[ring.length - 1];
-    let idx = -1, rev = false, best = Infinity;
-    for (let i = 0; i < rest.length; i++){
-      const s = rest[i];
-      const d1 = haversine(end, s[0]);
-      if (d1 < best){ best = d1; idx = i; rev = false; }
-      const d2 = haversine(end, s[s.length - 1]);
-      if (d2 < best){ best = d2; idx = i; rev = true; }
-    }
-    if (idx === -1 || best > GAP_M) break;
-    const s = rest.splice(idx, 1)[0];
-    const ordered = rev ? s.slice().reverse() : s;
-    let prev = ring[ring.length - 1];
-    for (let i = 1; i < ordered.length; i++){
-      ring.push(ordered[i]);
-      lengthM += haversine(prev, ordered[i]);
-      prev = ordered[i];
-    }
-  }
-  if (!closed && lengthM > 95000 && haversine(ring[ring.length - 1], ring[0]) < GAP_M) closed = true;
-  return { ring, closed, rest, lengthM };
-}
-
-function setState(lines, polygon, source){
-  const all = (Array.isArray(lines) && lines.length)
-    ? lines.concat([MKAD_FALLBACK_RING])
-    : [MKAD_FALLBACK_RING];
-  state = { lines: all, polygon, source, drawingRing: ringClosed(polygon) };
-  return state;
-}
-
-function ringClosed(ring){
-  if (!ring || ring.length < 3) return null;
-  const first = ring[0], last = ring[ring.length - 1];
-  if (first[0] === last[0] && first[1] === last[1]) return ring;
-  return [...ring, first];
-}
-
-/* ---------- Километровая параметризация кольца ---------- */
+/* ---------- Км-кольцо: параметризация (аварийный путь) ---------- */
 let cum = null, ringLenKm = 0;
 function ensureCum(){
   if (cum) return;
@@ -243,19 +278,9 @@ function ensureCum(){
   ringLenKm = cum[cum.length - 1] +
     haversine(MKAD_FALLBACK_RING[MKAD_FALLBACK_RING.length - 1], MKAD_FALLBACK_RING[0]) / 1000;
 }
-function segLenKm(i){
+function segLenKmOld(i){
   const next = i + 1 < cum.length ? cum[i + 1] : ringLenKm;
   return next - cum[i];
-}
-function projectOnSeg(p, a, b){
-  const kx = Math.cos(p[1] * Math.PI / 180);
-  const ax = a[0] * kx, ay = a[1], bx = b[0] * kx, by = b[1], px = p[0] * kx, py = p[1];
-  const vx = bx - ax, vy = by - ay;
-  const len2 = vx * vx + vy * vy;
-  let t = len2 === 0 ? 0 : ((px - ax) * vx + (py - ay) * vy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  const point = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-  return { point, t, dist: haversine(p, point) };
 }
 function nearestOnKmRing(p){
   ensureCum();
@@ -263,8 +288,15 @@ function nearestOnKmRing(p){
   for (let i = 0; i < MKAD_FALLBACK_RING.length; i++){
     const a = MKAD_FALLBACK_RING[i];
     const b = MKAD_FALLBACK_RING[(i + 1) % MKAD_FALLBACK_RING.length];
-    const r = projectOnSeg(p, a, b);
-    if (r.dist < best.dist) best = { dist: r.dist, t: cum[i] + r.t * segLenKm(i) };
+    const kx = Math.cos(p[1] * Math.PI / 180);
+    const ax = a[0] * kx, ay = a[1], bx = b[0] * kx, by = b[1], px = p[0] * kx, py = p[1];
+    const vx = bx - ax, vy = by - ay;
+    const len2 = vx * vx + vy * vy;
+    let t = len2 === 0 ? 0 : ((px - ax) * vx + (py - ay) * vy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const point = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    const dist = haversine(p, point);
+    if (dist < best.dist) best = { dist, t: cum[i] + t * segLenKmOld(i) };
   }
   return best;
 }
@@ -275,7 +307,7 @@ function pointAtKm(t){
   while (i < cum.length - 1 && cum[i + 1] < tt) i++;
   const a = MKAD_FALLBACK_RING[i];
   const b = MKAD_FALLBACK_RING[(i + 1) % MKAD_FALLBACK_RING.length];
-  const f = segLenKm(i) > 0 ? (tt - cum[i]) / segLenKm(i) : 0;
+  const f = segLenKmOld(i) > 0 ? (tt - cum[i]) / segLenKmOld(i) : 0;
   return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
 }
 function dirAtKm(t){
@@ -286,41 +318,57 @@ function dirAtKm(t){
   return [dx / L, dy / L];
 }
 
-/* Точка въезда/съезда + направление движения нужной стороны МКАД.
-   Внутренняя сторона едет по часовой (км растёт), внешняя — против (км убывает).
-   role: 'start' (старт с МКАД) или 'end' (финиш на МКАД). */
-export function mkadAccessPoint(address, inside, role){
+/* ---------- Точка въезда/съезда ---------- */
+export function mkadAccessPoint(address, inside, role, shiftKm = 0.4){
+  const side = inside ? 'inner' : 'outer';
+
+  // 1) Реальные узлы съездов (если есть)
+  if (shiftKm === 0.4){
+    const js = (state.junctions || []).filter(j => j.side === side);
+    if (js.length){
+      let best = null;
+      for (const j of js){
+        const d = haversine(address, [j.lon, j.lat]);
+        if (!best || d < best.d) best = { d, j };
+      }
+      return { point: [best.j.lon, best.j.lat], bearingDeg: null };
+    }
+  }
+
+  // 2) Точная линия нужной стороны (файл Яндекса)
+  const cw = state.carriageways ? state.carriageways[side] : null;
+  if (cw){
+    const { t } = nearestOnRing(cw, address);
+    // внешняя едет против часовой, внутренняя по часовой
+    const travel = side === 'outer' ? cw.ccwSign : -cw.ccwSign;
+    // старт — выше по ходу (съезд впереди), финиш — ниже (въезд позади)
+    const dir = role === 'start' ? -travel : travel;
+    const ts = t + dir * shiftKm;
+    const point = pointAt(cw, ts);
+    const bearingDeg = bearingBetween(point, pointAt(cw, ts + travel * 0.05));
+    return { point, bearingDeg };
+  }
+
+  // 3) Аварийно: километровое кольцо
   const { t } = nearestOnKmRing(address);
   let ts;
-  if (role === 'start') ts = inside ? t - SHIFT_KM : t + SHIFT_KM;
-  else ts = inside ? t + SHIFT_KM : t - SHIFT_KM;
-
+  if (role === 'start') ts = inside ? t - shiftKm : t + shiftKm;
+  else ts = inside ? t + shiftKm : t - shiftKm;
   const P = pointAtKm(ts);
-
-  // Направление движения выбранной стороны в точке ts:
-  // внутренняя -> вперёд по км, внешняя -> назад по км
   const ahead = inside ? pointAtKm(ts + 0.05) : pointAtKm(ts - 0.05);
   const bearingDeg = bearingBetween(P, ahead);
-
-  // Боковое смещение к стороне адреса (внешняя/внутренняя)
   const d = dirAtKm(ts);
   const n = [-d[1], d[0]];
   const kx = Math.cos(P[1] * Math.PI / 180);
   const ax = (address[0] - P[0]) * kx, ay = address[1] - P[1];
   const sign = (n[0] * ax + n[1] * ay) >= 0 ? 1 : -1;
-  const point = [
-    P[0] + sign * n[0] * SIDE_OFFSET_M / (111320 * kx),
-    P[1] + sign * n[1] * SIDE_OFFSET_M / 110540
-  ];
-  return { point, bearingDeg };
-}
-
-// Азимут (градусы по часовой от севера) из точки a в точку b
-function bearingBetween(a, b){
-  const kx = Math.cos(a[1] * Math.PI / 180);
-  const east = (b[0] - a[0]) * kx;
-  const north = b[1] - a[1];
-  return Math.round((Math.atan2(east, north) * 180 / Math.PI + 360) % 360);
+  return {
+    point: [
+      P[0] + sign * n[0] * 15 / (111320 * kx),
+      P[1] + sign * n[1] * 15 / 110540
+    ],
+    bearingDeg
+  };
 }
 
 export function closestMKADPoint(lonLat){
@@ -333,3 +381,10 @@ export function isInsideMKAD(lonLat){
   return pointInPolygon(lonLat, state.polygon);
 }
 export function mkadRingForMap(){ return state ? state.drawingRing : null; }
+
+function ringClosed(ring){
+  if (!ring || ring.length < 3) return null;
+  const first = ring[0], last = ring[ring.length - 1];
+  if (first[0] === last[0] && first[1] === last[1]) return ring;
+  return [...ring, first];
+}

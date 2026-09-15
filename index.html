@@ -51,16 +51,25 @@
     <section class="col-main">
 
       <section class="card">
-        <h2 class="card-title">Маршрут</h2>
+        <h2 class="card-title">Маршрут
+          <span class="help-wrap">
+          <button type="button" class="help-mark" id="helpMarkRoute" aria-label="Как считается пробег">?</button>
+            <span class="help-tip" role="tooltip">Выбирайте адрес из подсказок или вставьте координаты вида <b>55.756, 37.617</b>. Пробег пересчитывается автоматически. Если первый адрес внутри МКАД — пробег начинается с него (0 км), для адресов снаружи МКАД добавляется выезд к ближайшему съезду.</span>
+          </span>
+        </h2>
         <div class="addr-list" id="addrList"></div>
-        <p class="form-note">
-          Выбирайте адрес из подсказок или вставьте координаты вида <b>55.756, 37.617</b>.
-          Пробег пересчитывается автоматически: МКАД → адреса → МКАД, а если последний адрес
-          внутри МКАД — маршрут закончится на нём.
-        </p>
-        <div class="form-foot">
-          <span class="mkad-status" id="mkadStatus">Схема МКАД: загружается…</span>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="returnToggle" checked>
+            <span class="toggle-box" aria-hidden="true"></span>
+            <span class="toggle-text">Возврат на МКАД</span>
+          </label>
+          <span class="help-wrap">
+            <button type="button" class="help-mark" id="helpMarkReturn" aria-label="О переключателе «Возврат на МКАД»">?</button>
+            <span class="help-tip" role="tooltip">Переключатель «Возврат на МКАД» (включён по умолчанию) добавляет обратный пробег от последнего адреса до МКАД, если этот адрес снаружи МКАД. Если последний (или единственный) адрес внутри МКАД — переключатель блокируется и игнорируется: выезд и возврат не рассчитываются (зона 0 км).</span>
+          </span>
         </div>
+        <p class="toggle-hint" id="returnToggleHint"></p>
       </section>
 
       <!-- ПЛАШКА С ПРОБЕГОМ -->

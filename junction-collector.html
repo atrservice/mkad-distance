@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сбор координат съездов МКАД</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  body{ font-family:system-ui,sans-serif; margin:0; padding:16px; color:#101828; }
+  #map{ height:60vh; border:1px solid #d0d7e2; border-radius:12px; }
+  .bar{ display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; }
+  button{ padding:10px 14px; border:1px solid #d0d7e2; border-radius:10px; background:#fff; cursor:pointer; font-size:14px; }
+  button.on{ border-color:#1c5ede; background:#eef4ff; color:#1c5ede; font-weight:600; }
+  textarea{ width:100%; height:140px; font-family:monospace; font-size:12px; }
+  ol{ font-size:13px; }
+</style>
+</head>
+<body>
+<h2>Сбор координат съездов МКАД</h2>
+<ol>
+  <li>Выберите сторону кнопкой («внешняя» / «внутренняя»).</li>
+  <li>Кликните по карте в точке, где рампа съезда/въезда примыкает к полотну МКАД нужной стороны.</li>
+  <li>Скопируйте JSON и вставьте массив в <b>js/config.js</b> в <b>MKAD_JUNCTIONS_OVERRIDE</b>.</li>
+</ol>
+<div class="bar">
+  <button id="btnOuter" class="on">Сторона: внешняя</button>
+  <button id="btnInner">Сторона: внутренняя</button>
+  <button id="btnCopy">Скопировать JSON</button>
+  <button id="btnClear">Очистить</button>
+</div>
+<div id="map"></div>
+<div class="bar"><textarea id="out" readonly></textarea></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map').setView([55.72, 37.62], 10);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  let side = 'outer';
+  const pts = [];
+  const markers = [];
+  const out = document.getElementById('out');
+  const bO = document.getElementById('btnOuter');
+  const bI = document.getElementById('btnInner');
+  bO.onclick = () => { side = 'outer'; bO.classList.add('on'); bI.classList.remove('on'); bO.textContent = 'Сторона: внешняя'; };
+  bI.onclick = () => { side = 'inner'; bI.classList.add('on'); bO.classList.remove('on'); bI.textContent = 'Сторона: внутренняя'; };
+  map.on('click', (e) => {
+    const lon = +e.latlng.lng.toFixed(6), lat = +e.latlng.lat.toFixed(6);
+    pts.push({ lon, lat, side });
+    markers.push(L.circleMarker([lat, lon], {
+      radius: 7, color: side === 'outer' ? '#d92d20' : '#1c5ede',
+      weight: 3, fillColor: '#fff', fillOpacity: 1
+    }).bindTooltip(side + ': ' + lat + ', ' + lon).addTo(map));
+    render();
+  });
+  function render(){
+    out.value = '[\n' + pts.map(p =>
+      '  { lon: ' + p.lon + ', lat: ' + p.lat + ", side: '" + p.side + "' }"
+    ).join(',\n') + '\n]';
+  }
+  document.getElementById('btnCopy').onclick = () => {
+    out.select();
+    document.execCommand('copy');
+  };
+  document.getElementById('btnClear').onclick = () => {
+    pts.length = 0;
+    markers.forEach(m => m.remove());
+    markers.length = 0;
+    render();
+  };
+</script>
+</body>
+</html>

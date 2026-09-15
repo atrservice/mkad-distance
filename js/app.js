@@ -1,6 +1,7 @@
 import { searchAddress, reverseGeocode } from './geocoder.js';
 import { buildRoute } from './router.js';
-import { ensureMKAD, mkadAccessPoint, isInsideMKAD, getMKAD, mkadRingForMap } from './mkad.js';
+import { ensureMKAD, loadMkadStatic, mkadAccessPoint, isInsideMKAD, getMKAD, mkadRingForMap } from './mkad.js';
+import { haversine } from './geo.js';
 import { VEHICLES } from './vehicles.js';
 
 /* ---------- Элементы ---------- */
@@ -15,12 +16,12 @@ const legsList = $('#legsList');
 const vehicleInput = $('#vehicleInput');
 const vehicleSuggest = $('#vehicleSuggest');
 const specsForm = $('#specsForm');
-const mkadStatusEl = $('#mkadStatus');
 const toastEl = $('#toast');
 const installBtn = $('#installBtn');
 const helpBtn = $('#helpBtn');
 const helpDialog = $('#helpDialog');
 const helpClose = $('#helpClose');
+const returnToggle = $('#returnToggle');
 
 /* ---------- Карта ---------- */
 const map = L.map('map', { zoomControl: true }).setView([55.72, 37.62], 10);
@@ -40,7 +41,7 @@ let calcSeq = 0;
 let deferredInstall = null;
 let selectedVehicleId = null;
 const specValues = {};
-const routeCache = new Map(); // кэш маршрутов в рамках сессии
+const routeCache = new Map();
 
 /* ---------- Утилиты ---------- */
 const kmFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -138,7 +139,7 @@ function updateGhostStates(){
   });
 }
 
-/* ---------- Подсказки ---------- */
+/* ---------- Подсказки адресов и координат ---------- */
 function parseCoords(str){
   const m = str.trim().match(/^(-?\d+(?:\.\d+)?)[\s,;]+(-?\d+(?:\.\d+)?)$/);
   if (!m) return null;
@@ -186,8 +187,7 @@ async function fetchSuggestions(row){
       row.suggest.append(makeSuggestItem('Ничего не найдено. Уточните адрес.', null, true));
     } else {
       results.forEach(r => {
-        const parts = r.name.split(',').map(s => s.trim());
-        const item = makeSuggestItem(parts.slice(0, 3).join(', '), parts.slice(3).join(', '));
+        const item = makeSuggestItem(r.title, r.sub || '');
         item.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           confirmRow(row, [r.lon, r.lat], r.shortName);
@@ -249,7 +249,7 @@ function setActive(items, idx){
   items[idx].scrollIntoView({ block: 'nearest' });
 }
 
-/* ---------- Внутри/снаружи ---------- */
+/* ---------- Внутри/снаружи МКАД ---------- */
 function updateRowInside(row){
   if (!row.latlon){
     row.inside = null;
@@ -267,7 +267,7 @@ function updateRowInside(row){
   }
 }
 
-/* ---------- Контур МКАД на карте и статус ---------- */
+/* ---------- Контур МКАД и готовность схемы ---------- */
 function drawMkadRing(){
   if (mkadRingLayer){ mkadRingLayer.remove(); mkadRingLayer = null; }
   const ring = mkadRingForMap();
@@ -280,16 +280,27 @@ function drawMkadRing(){
 function onMkadReady(){
   const st = getMKAD();
   if (!st) return;
-  mkadStatusEl.textContent =
-    st.source === 'overpass'   ? 'Схема МКАД: загружена из OpenStreetMap (Overpass)' :
-    st.source === 'nominatim'  ? 'Схема МКАД: загружена из OpenStreetMap (Nominatim)' :
-    st.source === 'cache'      ? 'Схема МКАД: из кэша браузера' :
-                                 'Схема МКАД: километровое кольцо';
   drawMkadRing();
   rows.forEach(r => { if (r.latlon) updateRowInside(r); });
 }
 
-/* ---------- Пересчёт ---------- */
+/* ---------- Переключатель «Возврат на МКАД» ---------- */
+/* Блокируется и игнорируется, если последний подтверждённый адрес внутри МКАД */
+function updateReturnToggle(){
+  const used = confirmedPrefix();
+  const lastInside = used.length ? isInsideMKAD(used[used.length - 1].latlon) === true : false;
+  returnToggle.disabled = lastInside;
+  const wrap = returnToggle.closest('.toggle');
+  if (wrap) wrap.classList.toggle('is-disabled', lastInside);
+  const hint = document.getElementById('returnToggleHint');
+  if (hint){
+    hint.textContent = lastInside
+      ? 'Последний адрес внутри МКАД — возврат к МКАД не рассчитывается'
+      : '';
+  }
+}
+
+/* ---------- Пересчёт пробега ---------- */
 function scheduleRecalc(){
   clearTimeout(recalcTimer);
   recalcTimer = setTimeout(recalc, 250);
@@ -308,6 +319,7 @@ function routeCacheKey(pts){
 async function recalc(){
   const seq = ++calcSeq;
   const used = confirmedPrefix();
+  updateReturnToggle();
 
   if (!used.length){
     plateCard.dataset.state = 'idle';
@@ -327,42 +339,97 @@ async function recalc(){
     const last = used[used.length - 1].latlon;
     const firstInside = isInsideMKAD(first) === true;
     const lastInside = isInsideMKAD(last) === true;
-    const needReturn = !lastInside;
+    const needStart = !firstInside;                          // первый внутри МКАД -> старт с адреса (0 км)
+    const needReturn = !lastInside && returnToggle.checked;  // внутри МКАД возврат игнорируется даже при включённом тумблере
 
-    const startAcc = mkadAccessPoint(first, firstInside, 'start');
-    const pts = [startAcc.point, ...used.map(r => r.latlon)];
-    const bearings = [startAcc.bearingDeg, ...used.map(() => null)];
-    const labels = ['МКАД', ...used.map((_, i) => 'Адрес ' + (i + 1))];
-    const mkadPts = [startAcc.point];
-
-    if (needReturn){
-      const endAcc = mkadAccessPoint(last, lastInside, 'end');
-      pts.push(endAcc.point);
-      bearings.push(endAcc.bearingDeg);
-      labels.push('МКАД');
-      if (!(endAcc.point[0] === startAcc.point[0] && endAcc.point[1] === startAcc.point[1])){
-        mkadPts.push(endAcc.point);
+    // endShiftKm: сдвиг точки финиша вдоль стороны МКАД.
+    // Кандидат A (-0.3) — чуть до ближайшей точки, чтобы не проезжать рампу;
+    // кандидат B (+0.5) — с запасом после (гарантия достижимости без разворота).
+    const buildPlan = (endShiftKm) => {
+      const pts = [], bearings = [], labels = [], mkadPts = [];
+      if (needStart){
+        const acc = mkadAccessPoint(first, firstInside, 'start', 0.4);
+        pts.push(acc.point); bearings.push(acc.bearingDeg);
+        labels.push('МКАД'); mkadPts.push(acc.point);
       }
+      used.forEach((r, i) => {
+        pts.push(r.latlon); bearings.push(null);
+        labels.push('Адрес ' + (i + 1));
+      });
+      if (needReturn){
+        const acc = mkadAccessPoint(last, lastInside, 'end', endShiftKm);
+        pts.push(acc.point); bearings.push(acc.bearingDeg);
+        labels.push('МКАД');
+        if (!mkadPts.some(p => p[0] === acc.point[0] && p[1] === acc.point[1])){
+          mkadPts.push(acc.point);
+        }
+      }
+      return { pts, bearings, labels, mkadPts };
+    };
+
+    const fetchRoute = async (pl) => {
+      const key = routeCacheKey(pl.pts) + '|' + pl.bearings.map(b => (b === null ? '' : b)).join(';');
+      let r = routeCache.get(key);
+      if (!r){
+        r = await buildRoute(pl.pts, pl.bearings);
+        routeCache.set(key, r);
+        if (routeCache.size > 60) routeCache.delete(routeCache.keys().next().value);
+      }
+      return r;
+    };
+
+    const planA = buildPlan(-0.3);
+
+    // Нет ни выезда, ни возврата (например, одиночный адрес внутри МКАД): 0 км
+    if (planA.pts.length < 2){
+      if (seq !== calcSeq) return;
+      plateCard.dataset.state = 'ok';
+      plateDistance.textContent = fmtKm(0);
+      plateDuration.textContent = '';
+      plateStatus.textContent = 'Без выезда и возврата к МКАД — 0 км';
+      legsCard.hidden = true;
+      drawAddressesOnly(used.map(r => r.latlon));
+      return;
     }
 
-    const key = routeCacheKey(pts) + '|' + bearings.map(b => (b === null ? '' : b)).join(';');
-    let route = routeCache.get(key);
-    if (!route){
-      route = await buildRoute(pts, bearings);
-      routeCache.set(key, route);
-      if (routeCache.size > 60) routeCache.delete(routeCache.keys().next().value);
+    // Есть возврат — считаем двух кандидатов параллельно и берём короткий маршрут
+    const plans = needReturn ? [planA, buildPlan(0.5)] : [planA];
+    const routes = await Promise.all(plans.map(fetchRoute));
+    let idx = 0;
+    for (let i = 1; i < routes.length; i++){
+      if (routes[i].distanceM < routes[idx].distanceM) idx = i;
+    }
+    let plan = plans[idx];
+    let route = routes[idx];
+
+    // Предохранитель от петель-крюков
+    const geoSum = plan.pts.reduce((acc, p, i) => (i ? acc + haversine(plan.pts[i - 1], p) : 0), 0);
+    if (route.distanceM > geoSum + 4000){
+      const planC = buildPlan(0.9);
+      const routeC = await fetchRoute(planC);
+      if (routeC.distanceM < route.distanceM){
+        plan = planC;
+        route = routeC;
+      }
     }
     if (seq !== calcSeq) return;
 
     plateCard.dataset.state = 'ok';
     plateDistance.textContent = fmtKm(route.distanceM);
     plateDuration.textContent = '≈ ' + fmtDur(route.durationS);
-    plateStatus.textContent = 'Адресов: ' + used.length + ' · ' + (needReturn
-      ? 'последний адрес снаружи МКАД — учтён возврат к МКАД'
-      : 'последний адрес внутри МКАД — маршрут заканчивается на нём');
+    const startTxt = needStart ? 'учтён выезд к МКАД' : 'старт с адреса 1 (внутри МКАД)';
+    const endTxt = needReturn ? 'учтён возврат к МКАД'
+      : (lastInside ? 'возврат не рассчитывается (последний адрес внутри МКАД)'
+                    : 'возврат выключен переключателем');
+    plateStatus.textContent = 'Адресов: ' + used.length + ' · ' + startTxt + ', ' + endTxt;
 
-    renderLegs(route.legs, labels);
-    drawOnMap(route.geometry, mkadPts, used.map(r => r.latlon));
+    renderLegs(route.legs, plan.labels);
+    // Маркеры МКАД ставим в фактические концы маршрута — точка всегда совпадает с линией
+    const geom = route.geometry;
+    const mkadDraw = [];
+    if (needStart) mkadDraw.push(geom[0]);
+    if (needReturn) mkadDraw.push(geom[geom.length - 1]);
+    drawOnMap(route.geometry, mkadDraw, used.map(r => r.latlon));
   } catch (err){
     if (seq !== calcSeq) return;
     console.error(err);
@@ -386,6 +453,22 @@ function renderLegs(legs, labels){
     legsList.append(li);
   });
   legsCard.hidden = false;
+}
+
+function drawAddressesOnly(addrPts){
+  routeLayer.clearLayers();
+  addrPts.forEach((p, i) => {
+    const icon = L.divIcon({
+      className: 'pin',
+      html: '<div class="pin-bubble">' + (i + 1) + '</div>',
+      iconSize: [28, 28], iconAnchor: [14, 14]
+    });
+    L.marker([p[1], p[0]], { icon })
+      .bindTooltip('Адрес ' + (i + 1), { direction: 'top' })
+      .addTo(routeLayer);
+  });
+  const bounds = routeLayer.getBounds();
+  if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
 }
 
 function drawOnMap(geometry, mkadPts, addrPts){
@@ -412,7 +495,7 @@ function drawOnMap(geometry, mkadPts, addrPts){
   if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
 }
 
-/* ---------- Техника ---------- */
+/* ---------- Выбор техники ---------- */
 function initVehiclePicker(){
   vehicleInput.addEventListener('focus', () => showVehicles(vehicleInput.value.trim()));
   vehicleInput.addEventListener('input', () => showVehicles(vehicleInput.value.trim()));
@@ -504,7 +587,7 @@ function renderSpecs(v){
   });
 }
 
-/* ---------- Клавиатура / плашка на мобильном ---------- */
+/* ---------- Плашка и клавиатура на мобильном ---------- */
 document.addEventListener('focusin', (e) => {
   if (e.target instanceof Element && e.target.matches('input, select, textarea')){
     document.body.classList.add('kb-open');
@@ -518,7 +601,25 @@ document.addEventListener('focusout', () => {
   }, 120);
 });
 
-/* ---------- PWA ---------- */
+/* ---------- Маркеры «?» (у «Маршрут» и у переключателя) ---------- */
+document.querySelectorAll('.help-mark').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    btn.closest('.help-wrap').classList.toggle('open');
+  });
+});
+document.addEventListener('click', (e) => {
+  document.querySelectorAll('.help-wrap.open').forEach(w => {
+    if (!w.contains(e.target)) w.classList.remove('open');
+  });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape'){
+    document.querySelectorAll('.help-wrap.open').forEach(w => w.classList.remove('open'));
+  }
+});
+
+/* ---------- Установка как приложение (PWA) ---------- */
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstall = e;
@@ -539,6 +640,7 @@ helpBtn.addEventListener('click', () => helpDialog.showModal());
 helpClose.addEventListener('click', () => helpDialog.close());
 helpDialog.addEventListener('click', (e) => { if (e.target === helpDialog) helpDialog.close(); });
 
+/* ---------- Service Worker ---------- */
 if ('serviceWorker' in navigator &&
     (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))){
   window.addEventListener('load', () => {
@@ -549,9 +651,16 @@ if ('serviceWorker' in navigator &&
 /* ---------- Старт ---------- */
 createRow();
 initVehiclePicker();
+updateReturnToggle();
 drawMkadRing();
 onMkadReady();
-// Живая геометрия грузится фоном и не тормозит расчёты
+returnToggle.addEventListener('change', scheduleRecalc);
+// Быстрая локальная геометрия (файл Яндекса) — доступна сразу
+loadMkadStatic().then(() => {
+  onMkadReady();
+  scheduleRecalc();
+});
+// Съезды из OSM догружаются фоном и не блокируют интерфейс
 ensureMKAD().then(() => {
   onMkadReady();
   scheduleRecalc();
