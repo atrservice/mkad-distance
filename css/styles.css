@@ -76,7 +76,17 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   opacity:1; visibility:visible; transform:translateY(0);
 }
 @media (max-width:640px){
-  .help-tip{ width:min(280px, calc(100vw - 48px)); }
+  /* На мобильных тултип — плашка поверх экрана, не выходит за границы */
+  .help-tip{
+    position:fixed; top:12px; left:12px; right:12px;
+    width:auto; max-width:none; z-index:2000;
+    transform:none; box-shadow:0 8px 24px rgba(16,24,40,.18);
+  }
+  .help-wrap:hover .help-tip,
+  .help-mark:focus + .help-tip,
+  .help-wrap.open .help-tip{
+    transform:none;
+  }
 }
 
 /* ---------- Адреса ---------- */
@@ -124,6 +134,18 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .toggle-row{ display:flex; align-items:center; gap:8px; margin-top:14px; }
 .toggle-row .toggle{ margin-top:0; }
 .toggle-hint{ margin:6px 0 0; font-size:12px; line-height:1.4; color:var(--muted); min-height:16px; }
+/* Предупреждение о недоступности сервисов (часто из-за VPN) */
+.net-warn{
+  display:flex; align-items:flex-start; gap:10px;
+  margin:0 0 16px; padding:10px 12px;
+  background:#fffaeb; border:1px solid #fedf89; border-radius:12px;
+  color:#b54708; font-size:13px; line-height:1.45;
+}
+.net-warn[hidden]{ display:none; }
+.net-warn-close{
+  margin-left:auto; flex:none; border:none; background:none;
+  color:#b54708; font-size:18px; line-height:1; cursor:pointer; padding:2px 4px;
+}
 .toggle.is-disabled{ opacity:.55; cursor:default; }
 
 .addr-meta{ margin-top:5px; min-height:16px; font-size:12px; color:var(--muted); }

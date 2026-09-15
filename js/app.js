@@ -22,11 +22,13 @@ const helpBtn = $('#helpBtn');
 const helpDialog = $('#helpDialog');
 const helpClose = $('#helpClose');
 const returnToggle = $('#returnToggle');
+const netWarn = document.getElementById('netWarn');
+const netWarnClose = document.getElementById('netWarnClose');
 
 /* ---------- Карта ---------- */
 const map = L.map('map', { zoomControl: true }).setView([55.72, 37.62], 10);
 map.attributionControl.setPrefix(false); // убираем "Leaflet | флаг", оставляем © OSM
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+const tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 }).addTo(map);
@@ -58,6 +60,21 @@ function toast(msg){
   toastEl.classList.add('show');
   clearTimeout(toastEl._t);
   toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 4000);
+    /* Предупреждение о недоступности сервисов (типично при включённом VPN) */
+  let netWarnShown = false;
+  let tileErrorCount = 0;
+  function showNetWarning(){
+    if (netWarnShown || !netWarn) return;
+    netWarnShown = true;
+    netWarn.hidden = false;
+  }
+  tileLayer.on('tileerror', () => {
+    tileErrorCount++;
+    if (tileErrorCount >= 3) showNetWarning();
+  });
+  if (netWarnClose){
+    netWarnClose.addEventListener('click', () => { netWarn.hidden = true; });
+  }
 }
 
 /* ---------- Строки адресов ---------- */
@@ -198,8 +215,9 @@ async function fetchSuggestions(row){
     row.suggest.hidden = false;
   } catch (err){
     if (err.name === 'AbortError' || row.seq !== my) return;
+    showNetWarning();
     row.suggest.textContent = '';
-    row.suggest.append(makeSuggestItem('Не удалось проверить адрес. Проверьте интернет.', null, true));
+    row.suggest.append(makeSuggestItem('Не удалось проверить адрес. Проверьте интернет (при включённом VPN — отключите его).', null, true));
     row.suggest.hidden = false;
   }
 }
@@ -433,6 +451,7 @@ async function recalc(){
   } catch (err){
     if (seq !== calcSeq) return;
     console.error(err);
+    showNetWarning();
     plateCard.dataset.state = 'error';
     plateStatus.textContent = err.message || 'Не удалось рассчитать маршрут';
     plateDuration.textContent = '';
