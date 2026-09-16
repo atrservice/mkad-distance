@@ -1,5 +1,6 @@
 import { haversine, nearestOnLines, pointInPolygon, lineLength } from './geo.js';
 import { MKAD_JUNCTIONS_OVERRIDE } from './config.js';
+import { MKAD_OUTER_JUNCTIONS, MKAD_INNER_JUNCTIONS } from './mkad-junctions.js';
 
 // Аварийное километровое кольцо (108 точек), если файла данных нет
 export const MKAD_FALLBACK_RING = [
@@ -35,7 +36,6 @@ export const MKAD_FALLBACK_RING = [
 const GEOM_URL = 'data/mkad-yandex.txt';
 const LS_KEY = 'mkad-junctions-v1';
 const TTL_MS = 60 * 24 * 60 * 60 * 1000;
-
 const OVERPASS_ENDPOINTS = [
   'https://overpass.openstreetmap.ru/api/interpreter',
   'https://overpass-api.de/api/interpreter',
@@ -51,6 +51,34 @@ const QUERY =
   '(.mkad;.links;);' +
   'out geom;';
 
+/* ---------- Ручные списки съездов (js/mkad-junctions.js) ---------- */
+function parseJunctionList(str, side){
+  if (!str || typeof str !== 'string') return [];
+  const out = [];
+  str.split(';').forEach(pair => {
+    const s = pair.trim();
+    if (!s) return;
+    const [lonS, latS] = s.split(',');
+    const lon = parseFloat(lonS), lat = parseFloat(latS);
+    if (!isFinite(lon) || !isFinite(lat)) return;
+    out.push({ lon, lat, side, idx: out.length });
+  });
+  return out;
+}
+const manualJunctions =
+  parseJunctionList(MKAD_OUTER_JUNCTIONS, 'outer')
+    .concat(parseJunctionList(MKAD_INNER_JUNCTIONS, 'inner'));
+
+function mergeOverride(parsed){
+  const base = Array.isArray(parsed) ? parsed : [];
+  let out = base;
+  if (Array.isArray(MKAD_JUNCTIONS_OVERRIDE) && MKAD_JUNCTIONS_OVERRIDE.length){
+    out = MKAD_JUNCTIONS_OVERRIDE.map(j => ({ lon: j.lon, lat: j.lat, side: j.side })).concat(out);
+  }
+  // Ручные упорядоченные списки — приоритетнее всего
+  return manualJunctions.concat(out);
+}
+
 let state = {
   lines: [MKAD_FALLBACK_RING],
   polygon: MKAD_FALLBACK_RING,
@@ -64,20 +92,11 @@ let staticLoaded = false;
 
 export function getMKAD(){ return state; }
 
-function mergeOverride(parsed){
-  const base = Array.isArray(parsed) ? parsed : [];
-  if (Array.isArray(MKAD_JUNCTIONS_OVERRIDE) && MKAD_JUNCTIONS_OVERRIDE.length){
-    return MKAD_JUNCTIONS_OVERRIDE.map(j => ({ lon: j.lon, lat: j.lat, side: j.side })).concat(base);
-  }
-  return base;
-}
-
 /* ---------- Быстрая локальная геометрия (файл Яндекса) ---------- */
 export function loadMkadStatic(){
   if (staticLoaded) return Promise.resolve(state);
   return loadStaticGeometry();
 }
-
 async function loadStaticGeometry(){
   try {
     const res = await fetch(GEOM_URL);
@@ -109,7 +128,6 @@ async function loadStaticGeometry(){
   }
   return state;
 }
-
 function ringArea(pts){
   let sx = 0, sy = 0, area = 0;
   const kx = Math.cos(pts[0][1] * Math.PI / 180);
@@ -121,7 +139,6 @@ function ringArea(pts){
   }
   return area / 2;
 }
-
 function makeRing(ptsRaw){
   let pts = ptsRaw.slice();
   const f = pts[0], l = pts[pts.length - 1];
@@ -135,7 +152,6 @@ function makeRing(ptsRaw){
   const ccwSign = ringArea(pts) > 0 ? 1 : -1;
   return { pts, cum, len, ccwSign };
 }
-
 function segLenKm(ring, i){
   const next = i + 1 < ring.cum.length ? ring.cum[i + 1] : ring.len;
   return next - ring.cum[i];
@@ -205,7 +221,6 @@ export function ensureMKAD(){
   })().finally(() => { loading = null; });
   return loading;
 }
-
 async function fetchFromOverpass(endpoint){
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
@@ -231,7 +246,6 @@ async function fetchFromOverpass(endpoint){
     clearTimeout(timer);
   }
 }
-
 function buildJunctions(mkadWays, linkWays){
   const nodeKeys = new Set();
   for (const w of mkadWays){
@@ -321,21 +335,34 @@ function dirAtKm(t){
 /* ---------- Точка въезда/съезда ---------- */
 export function mkadAccessPoint(address, inside, role, shiftKm = 0.4){
   const side = inside ? 'inner' : 'outer';
-
-  // 1) Реальные узлы съездов (если есть)
-  if (shiftKm === 0.4){
-    const js = (state.junctions || []).filter(j => j.side === side);
-    if (js.length){
-      let best = null;
-      for (const j of js){
-        const d = haversine(address, [j.lon, j.lat]);
-        if (!best || d < best.d) best = { d, j };
-      }
-      return { point: [best.j.lon, best.j.lat], bearingDeg: null };
+  const js = (state.junctions || []).filter(j => j.side === side);
+  const manual = js.filter(j => typeof j.idx === 'number');
+  // 1) Ручные упорядоченные списки: старт — ближайший съезд; финиш — кандидаты по порядку
+  if (manual.length){
+    let bestPos = 0, bestD = Infinity;
+    manual.forEach((j, i) => {
+      const d = haversine(address, [j.lon, j.lat]);
+      if (d < bestD){ bestD = d; bestPos = i; }
+    });
+    const len = manual.length;
+    const at = (i) => manual[((i % len) + len) % len];
+    let pick = at(bestPos);
+    if (role === 'end'){
+      if (shiftKm === 0.5) pick = at(bestPos + 1);
+      else if (shiftKm === 0.9) pick = at(bestPos + 2);
     }
+    return { point: [pick.lon, pick.lat], bearingDeg: null };
   }
-
-  // 2) Точная линия нужной стороны (файл Яндекса)
+  // 2) Реальные узлы съездов (Overpass/override), только базовый сдвиг
+  if (shiftKm === 0.4 && js.length){
+    let best = null;
+    for (const j of js){
+      const d = haversine(address, [j.lon, j.lat]);
+      if (!best || d < best.d) best = { d, j };
+    }
+    return { point: [best.j.lon, best.j.lat], bearingDeg: null };
+  }
+  // 3) Точная линия нужной стороны (файл Яндекса)
   const cw = state.carriageways ? state.carriageways[side] : null;
   if (cw){
     const { t } = nearestOnRing(cw, address);
@@ -348,8 +375,7 @@ export function mkadAccessPoint(address, inside, role, shiftKm = 0.4){
     const bearingDeg = bearingBetween(point, pointAt(cw, ts + travel * 0.05));
     return { point, bearingDeg };
   }
-
-  // 3) Аварийно: километровое кольцо
+  // 4) Аварийно: километровое кольцо
   const { t } = nearestOnKmRing(address);
   let ts;
   if (role === 'start') ts = inside ? t - shiftKm : t + shiftKm;
@@ -370,7 +396,6 @@ export function mkadAccessPoint(address, inside, role, shiftKm = 0.4){
     bearingDeg
   };
 }
-
 export function closestMKADPoint(lonLat){
   if (!state) return null;
   const res = nearestOnLines(state.lines, lonLat);
@@ -381,7 +406,6 @@ export function isInsideMKAD(lonLat){
   return pointInPolygon(lonLat, state.polygon);
 }
 export function mkadRingForMap(){ return state ? state.drawingRing : null; }
-
 function ringClosed(ring){
   if (!ring || ring.length < 3) return null;
   const first = ring[0], last = ring[ring.length - 1];

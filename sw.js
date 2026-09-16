@@ -1,4 +1,4 @@
-const CACHE_STATIC = 'mkad-static-v21';
+const CACHE_STATIC = 'mkad-static-v23';
 const APP_SHELL = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const APP_SHELL = [
   './js/app.js',
   './js/geo.js',
   './js/mkad.js',
+  './js/mkad-junctions.js',
   './js/geocoder.js',
   './js/router.js',
   './js/vehicles.js',

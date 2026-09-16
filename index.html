@@ -91,9 +91,11 @@
 <!-- ПЛАШКА С ПРОБЕГОМ -->
 <section class="plate-card" id="plateCard" data-state="idle" aria-live="polite">
 <div class="plate-left">
+<div class="plate-caption" id="plateCaption" hidden>Оплачиваемый пробег</div>
 <div class="plate-total">
 <span id="plateDistance">—</span><span class="plate-unit">км</span>
 </div>
+<div class="plate-total-line" id="plateTotalLine" hidden></div>
 <div class="plate-status" id="plateStatus">Введите адрес — пробег посчитается автоматически</div>
 </div>
 <div class="plate-right"><span class="plate-dur" id="plateDuration"></span></div>
@@ -109,9 +111,8 @@
 </div>
 <div class="section-body">
 <div class="veh-field">
-<label class="spec-label veh-label" for="vehicleInput">Тип техники</label>
-<input id="vehicleInput" type="text" placeholder="Выберите тип техники" autocomplete="off">
-<div class="suggest" id="vehicleSuggest" hidden></div>
+<label class="spec-label veh-label" for="vehicleSelect">Тип техники</label>
+<select id="vehicleSelect" class="spec-control"></select>
 </div>
 <div class="chassis-wrap" id="chassisWrap" hidden>
 <span class="spec-label">Шасси</span>
@@ -120,7 +121,9 @@
 <label class="seg-opt"><input type="radio" name="chassis" value="offroad"><span>Вездеход</span></label>
 </div>
 </div>
-<div class="spec-row" id="specWrap" hidden>
+<!-- Характеристика + Смена: скрыты, пока не выбран тип техники -->
+<div class="spec-duo" id="specWrap" hidden>
+<div class="spec-col">
 <span class="spec-label-row">
 <label class="spec-label" for="specSelect" id="specLabel">Характеристика</label>
 <span class="help-wrap">
@@ -130,17 +133,61 @@
 </span>
 <select id="specSelect" class="spec-control"></select>
 </div>
+<div class="spec-col">
+<span class="spec-label-row">
+<label class="spec-label" for="shiftSelect">Смена</label>
+<span class="help-wrap">
+<button type="button" class="help-mark" id="helpMarkShift" aria-label="О режимах смены">?</button>
+<span class="help-tip" role="tooltip" id="shiftTip"></span>
+</span>
+</span>
+<select id="shiftSelect" class="spec-control"></select>
+</div>
+</div>
 <!-- ПЛАШКА СТОИМОСТИ АРЕНДЫ -->
 <div class="price-plate" id="pricePlate" hidden>
-<div class="price-grid">
-<label class="price-field">За смену, ₽<input id="priceShift" type="number" inputmode="decimal" min="0" step="any"></label>
-<label class="price-field">За час, ₽<input id="priceHour" type="number" inputmode="decimal" min="0" step="any"></label>
-<label class="price-field">За 1 км пробега, ₽<input id="priceKm" type="number" inputmode="decimal" min="0" step="any"></label>
+<div class="price-miles">
+<span class="price-miles-paid">Оплачиваемый пробег: <b id="milesPaid">—</b></span>
+<span class="price-miles-total">Общий пробег: <b id="milesTotal">—</b></span>
 </div>
-<div class="price-total">
-<span class="price-total-label">Сумма аренды</span>
-<span class="price-total-value" id="priceTotal">—</span>
-<span class="price-total-note" id="priceTotalNote"></span>
+<div class="price-grid">
+<div class="price-field">
+<span class="price-field-head">
+<label for="priceShift">За смену 7+1, ₽</label>
+<span class="help-wrap">
+<button type="button" class="help-mark" id="helpMarkShiftPrice" aria-label="О базовой цене за смену">?</button>
+<span class="help-tip" role="tooltip">Базовая цена смены — за режим 7+1: 7 часов работы + 1 час подачи техники на объект (всего 8 оплачиваемых часов). «За час» по умолчанию = смена ÷ 8. Выбор других режимов «Смена» не меняет значения в полях — к сумме добавляются дополнительные часы по ставке «За час»: доп. часы = оплачиваемые часы режима − 8. Пример при смене 16 000 ₽ (час 2 000 ₽): режим «12» → 16 000 + (12 − 8) × 2 000 = 24 000 ₽; режим «12+1» → 16 000 + (13 − 8) × 2 000 = 26 000 ₽.</span>
+</span>
+</span>
+<input id="priceShift" type="number" inputmode="decimal" min="0" step="any">
+</div>
+<div class="price-field">
+<label for="priceHour">За час, ₽</label>
+<input id="priceHour" type="number" inputmode="decimal" min="0" step="any">
+</div>
+<div class="price-field">
+<label for="priceKm">За 1 км пробега, ₽</label>
+<input id="priceKm" type="number" inputmode="decimal" min="0" step="any">
+</div>
+</div>
+<div class="price-total-note" id="priceTotalNote"></div>
+<div class="price-offers">
+<div class="price-offers-title">Минимальная сумма аренды</div>
+<div class="price-offer-row">
+<span class="price-offer-name">Наличный расчет</span>
+<b class="price-offer-value" id="priceTotal">—</b>
+<button type="button" class="price-choose" data-kind="cash">Выбрать</button>
+</div>
+<div class="price-offer-row">
+<span class="price-offer-name">Расчет с НДС <span id="vatPct">22</span>%</span>
+<b class="price-offer-value" id="priceVat">—</b>
+<button type="button" class="price-choose" data-kind="vat">Выбрать</button>
+</div>
+<div class="price-offer-row">
+<span class="price-offer-name">Расчет без НДС</span>
+<b class="price-offer-value" id="priceNoVat">—</b>
+<button type="button" class="price-choose" data-kind="novat">Выбрать</button>
+</div>
 </div>
 </div>
 </div>

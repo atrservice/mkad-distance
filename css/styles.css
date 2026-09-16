@@ -112,11 +112,15 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .section-head .card-title{ margin:0; }
 .section-head:focus-visible{ outline:2px solid var(--accent); outline-offset:4px; border-radius:8px; }
 .section.is-collapsed .section-head{ cursor:pointer; margin-bottom:0; }
+/* Километраж в свёрнутом заголовке «Маршрут» — покрупнее для восприятия */
 .section-km{
-  margin-left:auto; font-size:14px; font-weight:700; color:var(--accent);
+  margin-left:auto; font-size:18px; font-weight:800; color:var(--accent);
   white-space:nowrap; font-variant-numeric:tabular-nums;
 }
-.section-summary{ color:var(--ink-2); font-weight:600; max-width:62%; overflow:hidden; text-overflow:ellipsis; }
+.section-summary{
+  font-size:14px; font-weight:600; color:var(--ink-2);
+  max-width:62%; overflow:hidden; text-overflow:ellipsis;
+}
 .section-chevron{
   flex:none; width:9px; height:9px; margin-left:6px;
   border-right:2px solid var(--muted); border-bottom:2px solid var(--muted);
@@ -133,14 +137,47 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .chassis-wrap{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
 .veh-label{ display:block; margin-bottom:6px; }
 .spec-label-row{ display:flex; align-items:center; }
-#specWrap{ margin-top:14px; }
+/* ---------- Характеристика + Смена в одну строку ---------- */
+.spec-duo{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
+.spec-col{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+@media (max-width:560px){
+  .spec-duo{ grid-template-columns:1fr; }
+}
 /* ---------- Плашка стоимости аренды ---------- */
 .price-plate{
   margin-top:16px; padding:14px;
   border:1px solid var(--border); border-radius:12px; background:#f8fafc;
 }
+/* Пробег: оплачиваемый — крупно, общий — мельче и приглушённо */
+.price-miles{
+  display:flex; flex-direction:column; gap:2px;
+  margin-bottom:12px; padding-bottom:12px; border-bottom:1px dashed var(--border-strong);
+}
+.price-miles-paid{ font-size:20px; font-weight:800; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+.price-miles-paid b{ font-weight:800; }
+.price-miles-total{ font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.price-miles-total b{ font-weight:600; color:var(--ink-2); }
+/* Подпись и строка общего пробега на плашке маршрута */
+.plate-caption{ font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--accent); margin-bottom:2px; }
+.plate-total-line{ margin-top:2px; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+/* Варианты итоговой суммы */
+.price-offers{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-strong); display:flex; flex-direction:column; gap:8px; }
+.price-offers-title{ font-size:13px; font-weight:700; color:var(--ink-2); }
+.price-offer-row{ display:flex; align-items:center; gap:10px; }
+.price-offer-name{ flex:1 1 auto; min-width:0; font-size:14px; color:var(--ink-2); }
+.price-offer-value{ font-size:18px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.price-choose{
+  flex:none; height:36px; padding:0 14px;
+  border:1px solid var(--border-strong); border-radius:10px; background:#fff;
+  color:var(--accent); font:inherit; font-size:13px; font-weight:600; cursor:pointer;
+  transition:border-color .15s;
+}
+.price-choose:hover{ border-color:var(--accent); }
 .price-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 .price-field{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--ink-2); }
+/* Подпись поля цен с маркером «?» в одну строку */
+.price-field-head{ display:flex; align-items:center; font-size:13px; color:var(--ink-2); }
+.price-field-head .help-wrap{ margin-left:4px; }
 .price-field input{
   width:100%; height:44px; padding:0 12px;
   border:1px solid var(--border-strong); border-radius:12px;
@@ -148,12 +185,6 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   transition:border-color .15s, box-shadow .15s;
 }
 .price-field input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(28,94,222,.14); }
-.price-total{
-  display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 10px;
-  margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-strong);
-}
-.price-total-label{ font-size:14px; font-weight:600; color:var(--ink-2); }
-.price-total-value{ font-size:24px; font-weight:800; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
 .price-total-note{ width:100%; font-size:12.5px; line-height:1.45; color:var(--ink-2); }
 /* ---------- Режим «Стоимость аренды» ---------- */
 body.mode-rent .layout{ grid-template-columns:1fr; }
@@ -216,7 +247,7 @@ body.mode-rent .col-side{ display:none; }
 .addr-meta{ margin-top:5px; min-height:16px; font-size:12px; color:var(--muted); }
 .addr-meta[data-state="in"]{ color:var(--ok); font-weight:600; }
 .addr-meta[data-state="out"]{ color:var(--warn); font-weight:600; }
-/* ---------- Выпадающие подсказки (адреса и техника) ---------- */
+/* ---------- Выпадающие подсказки (адреса) ---------- */
 .veh-field{ position:relative; }
 .suggest{
   position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:1200;
@@ -255,7 +286,7 @@ body.mode-rent .col-side{ display:none; }
 }
 .plate-card[data-state="error"] .plate-status{ color:var(--danger); }
 @keyframes spin{ to{ transform:rotate(360deg); } }
-/* ---------- Характеристики техники ---------- */
+/* ---------- Списки характеристик и техники ---------- */
 .spec-row{ display:flex; flex-direction:column; gap:6px; }
 .spec-label{ font-size:13px; color:var(--ink-2); }
 .spec-control{

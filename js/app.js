@@ -1,20 +1,21 @@
 import { searchAddress, reverseGeocode } from './geocoder.js';
 import { buildRoute } from './router.js';
-import { ensureMKAD, loadMkadStatic, mkadAccessPoint, isInsideMKAD, getMKAD, mkadRingForMap } from './mkad.js';
+import { ensureMKAD, loadMkadStatic, mkadAccessPoint, isInsideMKAD, getMKAD, mkadRingForMap, closestMKADPoint } from './mkad.js';
 import { haversine } from './geo.js';
-import { VEHICLES, CHASSIS_LABELS } from './vehicles.js';
+import { VEHICLES, CHASSIS_LABELS, SHIFT_MODES, SHIFT_DEFAULT, SHIFT_TOOLTIP, VAT_RATE, NO_VAT_DIVISOR } from './vehicles.js';
 
 /* ---------- Элементы ---------- */
 const $ = (s) => document.querySelector(s);
 const addrList = $('#addrList');
 const plateCard = $('#plateCard');
 const plateDistance = $('#plateDistance');
+const plateCaption = $('#plateCaption');
+const plateTotalLine = $('#plateTotalLine');
 const plateStatus = $('#plateStatus');
 const plateDuration = $('#plateDuration');
 const legsCard = $('#legsCard');
 const legsList = $('#legsList');
-const vehicleInput = $('#vehicleInput');
-const vehicleSuggest = $('#vehicleSuggest');
+const vehicleSelect = $('#vehicleSelect');
 const toastEl = $('#toast');
 const installBtn = $('#installBtn');
 const helpBtn = $('#helpBtn');
@@ -36,12 +37,19 @@ const specWrap = $('#specWrap');
 const specLabel = $('#specLabel');
 const specTip = $('#specTip');
 const specSelect = $('#specSelect');
+const shiftSelect = $('#shiftSelect');
+const shiftTip = $('#shiftTip');
 const pricePlate = $('#pricePlate');
 const priceShift = $('#priceShift');
 const priceHour = $('#priceHour');
 const priceKm = $('#priceKm');
 const priceTotal = $('#priceTotal');
+const priceVat = $('#priceVat');
+const priceNoVat = $('#priceNoVat');
+const vatPct = $('#vatPct');
 const priceTotalNote = $('#priceTotalNote');
+const milesPaid = $('#milesPaid');
+const milesTotal = $('#milesTotal');
 const modeCalcBtn = $('#modeCalcBtn');
 const modeOrderBtn = $('#modeOrderBtn');
 
@@ -65,12 +73,15 @@ let selectedVehicleId = null;
 const routeCache = new Map();
 // Стоимость аренды
 let appMode = 'route';      // 'route' | 'rent' (в будущем 'order' — «Оформить заказ»)
-let lastDistanceM = null;   // пробег последнего успешного расчёта (м); при ошибке расчёта НЕ меняется
+let lastDistanceM = null;   // общий пробег последнего успешного расчёта (м); при ошибке НЕ меняется
+let lastRouteData = null;   // данные геометрии для оплачиваемого пробега; при ошибке НЕ меняется
 let rentOption = null;      // выбранный вариант характеристики
+let shiftModeId = SHIFT_DEFAULT; // выбранный режим «Смена» (влияет только на сумму, поля не меняет)
 
 /* ---------- Утилиты ---------- */
 const kmFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const rubFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
+const moneyFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtKm = (meters) => kmFmt.format(meters / 1000) + ' км';
 const fmtRub = (v) => rubFmt.format(Math.round(v)) + ' ₽';
 function fmtDur(seconds){
@@ -359,7 +370,9 @@ async function recalc(){
     legsCard.hidden = true;
     routeLayer.clearLayers();
     lastDistanceM = null;
+    lastRouteData = null;
     updateRouteSummary();
+    updatePlateMiles();
     recalcRentTotal();
     return;
   }
@@ -372,9 +385,6 @@ async function recalc(){
     const lastInside = isInsideMKAD(last) === true;
     const needStart = !firstInside;                          // первый внутри МКАД -> старт с адреса (0 км)
     const needReturn = !lastInside && returnToggle.checked;  // внутри МКАД возврат игнорируется даже при включённом тумблере
-    // endShiftKm: сдвиг точки финиша вдоль стороны МКАД.
-    // Кандидат A (-0.3) — чуть до ближайшей точки, чтобы не проезжать рампу;
-    // кандидат B (+0.5) — с запасом после (гарантия достижимости без разворота).
     const buildPlan = (endShiftKm) => {
       const pts = [], bearings = [], labels = [], mkadPts = [];
       if (needStart){
@@ -417,7 +427,9 @@ async function recalc(){
       legsCard.hidden = true;
       drawAddressesOnly(used.map(r => r.latlon));
       lastDistanceM = 0;
+      lastRouteData = null;
       updateRouteSummary();
+      updatePlateMiles();
       recalcRentTotal();
       return;
     }
@@ -450,14 +462,30 @@ async function recalc(){
                     : 'возврат выключен переключателем');
     plateStatus.textContent = 'Адресов: ' + used.length + ' · ' + startTxt + ', ' + endTxt;
     renderLegs(route.legs, plan.labels);
-    // Маркеры МКАД ставим в фактические концы маршрута — точка всегда совпадает с линией
+    // Маркеры МКАД ставим в фактические концы геометрии маршрута — точка всегда совпадает с линией
     const geom = route.geometry;
     const mkadDraw = [];
     if (needStart) mkadDraw.push(geom[0]);
     if (needReturn) mkadDraw.push(geom[geom.length - 1]);
     drawOnMap(route.geometry, mkadDraw, used.map(r => r.latlon));
     lastDistanceM = route.distanceM;
+    // Данные для ОПЛАЧИВАЕМОГО пробега (типозависимая калькуляция).
+    const legPolylines = splitGeometryByWaypoints(route.geometry, plan.pts);
+    let outsideDelivery = 0; // подача: МКАД → адрес 1 (только если адрес 1 снаружи)
+    let outsideReloc = 0;    // перебазировки: адрес → адрес
+    legPolylines.forEach((pl, i) => {
+      const fromMkad = plan.labels[i] === 'МКАД';
+      const toMkad = plan.labels[i + 1] === 'МКАД';
+      if (!fromMkad && !toMkad) outsideReloc += outsideMkadDistance(pl);
+      else if (fromMkad && !toMkad) outsideDelivery += outsideMkadDistance(pl);
+    });
+    lastRouteData = {
+      outsideFull: outsideMkadDistance(route.geometry), // манипулятор: всё вне МКАД
+      outsideDelivery,
+      outsideReloc
+    };
     updateRouteSummary();
+    updatePlateMiles();
     recalcRentTotal();
   } catch (err){
     if (seq !== calcSeq) return;
@@ -466,7 +494,7 @@ async function recalc(){
     plateCard.dataset.state = 'error';
     plateStatus.textContent = err.message || 'Не удалось рассчитать маршрут';
     plateDuration.textContent = '';
-    // lastDistanceM намеренно НЕ меняем при ошибке: остаётся последний известный пробег
+    // lastDistanceM и lastRouteData намеренно НЕ меняем при ошибке
   }
 }
 function renderLegs(legs, labels){
@@ -523,56 +551,91 @@ function drawOnMap(geometry, mkadPts, addrPts){
   if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
 }
 
+/* ---------- Оплачиваемый пробег: геометрия вне МКАД ---------- */
+function splitGeometryByWaypoints(geometry, pts){
+  const legs = [];
+  let start = 0;
+  for (let k = 1; k < pts.length; k++){
+    let bestIdx = start, bestD = Infinity;
+    for (let i = start; i < geometry.length; i++){
+      const d = haversine(geometry[i], pts[k]);
+      if (d < bestD){ bestD = d; bestIdx = i; }
+    }
+    legs.push(geometry.slice(start, bestIdx + 1));
+    start = bestIdx;
+  }
+  return legs;
+}
+const MKAD_TOLERANCE_M = 25;
+function outsideMkadDistance(pts){
+  let total = 0;
+  for (let i = 1; i < pts.length; i++){
+    const a = pts[i - 1], b = pts[i];
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const inside = isInsideMKAD(mid);
+    if (inside === true) continue;
+    if (inside === null){ total += haversine(a, b); continue; }
+    const ringPt = closestMKADPoint(mid);
+    if (ringPt && haversine(mid, ringPt) < MKAD_TOLERANCE_M) continue; // сама МКАД
+    total += haversine(a, b);
+  }
+  return total;
+}
+
+/* ---------- Плашка маршрута: оплачиваемый пробег крупно ---------- */
+function updatePlateMiles(){
+  const v = VEHICLES.find(x => x.id === selectedVehicleId);
+  if (v && lastDistanceM != null){
+    plateCaption.hidden = false;
+    plateTotalLine.hidden = false;
+    plateDistance.textContent = String(Math.round(paidDistanceFor(v) / 1000));
+    plateTotalLine.textContent = 'Общий пробег: ' + fmtKm(lastDistanceM);
+  } else {
+    plateCaption.hidden = true;
+    plateTotalLine.hidden = true;
+    plateDistance.textContent = lastDistanceM == null ? '—' : fmtKm(lastDistanceM);
+  }
+}
+
 /* ---------- Выбор техники и стоимость аренды ---------- */
 function chassisValue(){
   const r = document.querySelector('input[name="chassis"]:checked');
   return r ? r.value : 'highway';
 }
-function initVehiclePicker(){
-  vehicleInput.addEventListener('focus', () => showVehicles(vehicleInput.value.trim()));
-  vehicleInput.addEventListener('input', () => showVehicles(vehicleInput.value.trim()));
-  vehicleInput.addEventListener('keydown', onVehicleKeys);
-  vehicleInput.addEventListener('blur', () => {
-    setTimeout(() => {
-      vehicleSuggest.hidden = true;
-      const sel = VEHICLES.find(v => v.id === selectedVehicleId);
-      vehicleInput.value = sel ? sel.name : '';
-    }, 150);
+function initVehicleSelect(){
+  vehicleSelect.textContent = '';
+  const ph = document.createElement('option');
+  ph.value = ''; ph.textContent = 'Выберите…';
+  vehicleSelect.append(ph);
+  VEHICLES.forEach(v => {
+    const op = document.createElement('option');
+    op.value = v.id; op.textContent = v.name;
+    vehicleSelect.append(op);
   });
 }
-function showVehicles(filter){
-  vehicleSuggest.textContent = '';
-  const f = (filter || '').toLowerCase();
-  const list = VEHICLES.filter(v => v.name.toLowerCase().includes(f));
-  if (!list.length){
-    vehicleSuggest.append(makeSuggestItem('Не найдено', null, true));
+function initShiftSelect(){
+  shiftSelect.textContent = '';
+  SHIFT_MODES.forEach(m => {
+    const op = document.createElement('option');
+    op.value = m.id; op.textContent = m.id;
+    shiftSelect.append(op);
+  });
+  shiftSelect.value = SHIFT_DEFAULT;
+}
+vehicleSelect.addEventListener('change', () => {
+  const v = VEHICLES.find(x => x.id === vehicleSelect.value) || null;
+  selectedVehicleId = v ? v.id : null;
+  if (v){
+    renderVehicleDetails(v);
   } else {
-    list.forEach(v => {
-      const item = makeSuggestItem(v.name, null, false);
-      if (v.id === selectedVehicleId) item.classList.add('selected');
-      item.addEventListener('pointerdown', (e) => { e.preventDefault(); selectVehicle(v); });
-      vehicleSuggest.append(item);
-    });
+    rentOption = null;
+    chassisWrap.hidden = true;
+    specWrap.hidden = true;
+    pricePlate.hidden = true;
+    updateVehicleSummary();
+    updatePlateMiles();
   }
-  vehicleSuggest.hidden = false;
-}
-function selectVehicle(v){
-  selectedVehicleId = v.id;
-  vehicleInput.value = v.name;
-  vehicleSuggest.hidden = true;
-  renderVehicleDetails(v);
-}
-function onVehicleKeys(e){
-  if (vehicleSuggest.hidden) return;
-  const items = [...vehicleSuggest.querySelectorAll('.suggest-item:not(.muted)')];
-  if (!items.length) return;
-  let idx = items.findIndex(i => i.classList.contains('active'));
-  if (e.key === 'ArrowDown'){ e.preventDefault(); setActive(items, (idx + 1) % items.length); }
-  else if (e.key === 'ArrowUp'){ e.preventDefault(); setActive(items, (idx - 1 + items.length) % items.length); }
-  else if (e.key === 'Enter'){ e.preventDefault(); (idx >= 0 ? items[idx] : items[0]).dispatchEvent(new Event('pointerdown')); }
-  else if (e.key === 'Escape'){ vehicleSuggest.hidden = true; }
-}
-/* Тип выбран: тумблер «Шасси» (если нужен) + список характеристик с тултипом */
+});
 function renderVehicleDetails(v){
   rentOption = null;
   pricePlate.hidden = true;
@@ -592,8 +655,21 @@ function renderVehicleDetails(v){
     specSelect.append(op);
   });
   specSelect.value = '';
+  shiftModeId = SHIFT_DEFAULT;
+  shiftSelect.value = SHIFT_DEFAULT;
   specWrap.hidden = false;
   updateVehicleSummary();
+  updatePlateMiles();
+}
+
+/* ---------- Режим «Смена» и цены ---------- */
+function shiftMode(){
+  return SHIFT_MODES.find(m => m.id === shiftModeId) || SHIFT_MODES[0];
+}
+/* Доп. часы режима СВЕРХ базового 7+1 (8 оплачиваемых часов):
+   доп. часы = (work + delivery) − 8, не меньше 0. Поля цен режим НЕ меняет. */
+function shiftExtraHours(mode){
+  return Math.max(0, mode.work + mode.delivery - 8);
 }
 function getBasePrices(v, option, chassis){
   const byOption = (v.prices && v.prices[option]) || null;
@@ -602,38 +678,16 @@ function getBasePrices(v, option, chassis){
 }
 function fillBasePrices(v, option, chassis){
   const p = getBasePrices(v, option, chassis);
+  shiftModeId = SHIFT_DEFAULT;
+  shiftSelect.value = SHIFT_DEFAULT;
   priceShift.value = p ? p.shift : 0;
-  priceHour.value = p ? p.hour : 0;
+  priceHour.value = p ? Math.round(p.shift / 8) : 0;
   priceKm.value = p ? p.km : 0;
 }
 function priceVal(el){
   const n = parseFloat(el.value);
   return isFinite(n) && n > 0 ? n : 0;
 }
-/* ФОРМУЛА (подтверждена пользователем): Сумма = цена за смену + Пробег (км) × цена за 1 км.
-   Цена за час — справочное поле (пригодится для переработок на следующих этапах). */
-function recalcRentTotal(){
-  if (!rentOption) return;
-  const shift = priceVal(priceShift);
-  const km = priceVal(priceKm);
-  const kmTotal = lastDistanceM == null ? 0 : lastDistanceM / 1000;
-  const total = shift + kmTotal * km;
-  priceTotal.textContent = fmtRub(total);
-  if (lastDistanceM == null){
-    priceTotalNote.textContent = '= смена ' + fmtRub(shift) + ' (пробег пока не рассчитан — введите адрес в разделе «Маршрут»)';
-  } else {
-    priceTotalNote.textContent = '= смена ' + fmtRub(shift) + ' + пробег ' + kmFmt.format(kmTotal) + ' км × ' + fmtRub(km) + '/км';
-  }
-}
-function updateVehicleSummary(){
-  const v = VEHICLES.find(x => x.id === selectedVehicleId);
-  if (!v){ vehicleSummary.textContent = ''; return; }
-  const parts = [v.name];
-  if (rentOption) parts.push(rentOption);
-  if (v.hasChassis) parts.push(CHASSIS_LABELS[chassisValue()] || 'Шоссейное');
-  vehicleSummary.textContent = parts.join(' · ');
-}
-// Смена характеристики: плашка появляется, цены сбрасываются на базовые
 specSelect.addEventListener('change', () => {
   const v = VEHICLES.find(x => x.id === selectedVehicleId);
   rentOption = specSelect.value || null;
@@ -647,7 +701,6 @@ specSelect.addEventListener('change', () => {
   recalcRentTotal();
   updateVehicleSummary();
 });
-// Смена шасси влияет на цену: цены сбрасываются на базовые для нового шасси
 document.querySelectorAll('input[name="chassis"]').forEach(r => {
   r.addEventListener('change', () => {
     const v = VEHICLES.find(x => x.id === selectedVehicleId);
@@ -658,8 +711,82 @@ document.querySelectorAll('input[name="chassis"]').forEach(r => {
     updateVehicleSummary();
   });
 });
-// Ручные правки цен — пересчёт суммы без сброса остальных полей
-[priceShift, priceHour, priceKm].forEach(inp => inp.addEventListener('input', recalcRentTotal));
+shiftSelect.addEventListener('change', () => {
+  shiftModeId = shiftSelect.value || SHIFT_DEFAULT;
+  recalcRentTotal();
+  updateVehicleSummary();
+});
+priceShift.addEventListener('input', () => {
+  priceHour.value = Math.round(priceVal(priceShift) / 8);
+  recalcRentTotal();
+});
+[priceHour, priceKm].forEach(inp => inp.addEventListener('input', recalcRentTotal));
+// Кнопки «Выбрать» — заглушка до следующей фичи
+document.querySelectorAll('.price-choose').forEach(b => {
+  b.addEventListener('click', () => {
+    toast('Кнопка «Выбрать» — заглушка: выбор варианта расчёта появится в следующей итерации');
+  });
+});
+
+/* ---------- Типозависимая калькуляция ---------- */
+function extraHoursFor(v, nAddr){
+  if (nAddr < 2) return 0;
+  if (v.id === 'manipulyator') return Math.max(0, nAddr - 2);
+  return nAddr - 1;
+}
+function paidDistanceFor(v){
+  if (v.id === 'avtovyshka' || v.id === 'prikrytie') return lastDistanceM || 0;
+  if (!lastRouteData) return 0;
+  if (v.id === 'manipulyator') return lastRouteData.outsideFull;
+  if (v.id === 'avtokran') return lastRouteData.outsideDelivery + lastRouteData.outsideReloc;
+  return lastDistanceM || 0;
+}
+/* ФОРМУЛА: Сумма(наличная) = смена(7+1) + (доп. часы режима + доп. часы типа) × час
+           + Оплачиваемый пробег (целые км) × цена/км.
+   Варианты: с НДС = наличная × (1 + VAT_RATE); без НДС = наличная / NO_VAT_DIVISOR. */
+function recalcRentTotal(){
+  const v = VEHICLES.find(x => x.id === selectedVehicleId);
+  if (!v || !rentOption) return;
+  const shift = priceVal(priceShift);
+  const hourRate = priceVal(priceHour);
+  const kmRate = priceVal(priceKm);
+  const extraMode = shiftExtraHours(shiftMode());
+  const extraType = extraHoursFor(v, confirmedPrefix().length);
+  const paidKm = Math.round(paidDistanceFor(v) / 1000);
+  const total = shift + (extraMode + extraType) * hourRate + paidKm * kmRate;
+  milesTotal.textContent = lastDistanceM == null ? 'не рассчитан' : fmtKm(lastDistanceM);
+  milesPaid.textContent = lastDistanceM == null ? '—' : paidKm + ' км';
+  priceTotal.textContent = fmtRub(total);
+  priceVat.textContent = moneyFmt.format(total * (1 + VAT_RATE)) + ' ₽';
+  priceNoVat.textContent = moneyFmt.format(total / NO_VAT_DIVISOR) + ' ₽';
+  vatPct.textContent = String(Math.round(VAT_RATE * 100));
+  const kmLabel = (v.id === 'avtovyshka' || v.id === 'prikrytie') ? 'пробег' : 'оплачиваемый пробег';
+  const typeLabel = v.id === 'avtokran' ? 'перебазировки'
+    : v.id === 'manipulyator' ? 'доп. адреса'
+    : 'доп. часы';
+  // Строка расчёта: символическая часть + числа, смена в скобках
+  const sym = ['смена (' + shiftModeId + ')'];
+  const num = [fmtRub(shift)];
+  if (extraMode > 0){ sym.push('доп. часы смены (' + extraMode + ' ч)'); num.push(extraMode + ' ч × ' + fmtRub(hourRate)); }
+  if (extraType > 0){ sym.push(typeLabel + ' (' + extraType + ' ч)'); num.push(extraType + ' ч × ' + fmtRub(hourRate)); }
+  sym.push(kmLabel);
+  if (lastDistanceM == null){
+    priceTotalNote.textContent = 'Расчет = ' + sym.join(' + ') + ' = ' + num.join(' + ') +
+      ' (пробег пока не рассчитан — введите адрес в разделе «Маршрут»)';
+  } else {
+    num.push(paidKm + ' км × ' + fmtRub(kmRate) + '/км');
+    priceTotalNote.textContent = 'Расчет = ' + sym.join(' + ') + ' = ' + num.join(' + ');
+  }
+}
+function updateVehicleSummary(){
+  const v = VEHICLES.find(x => x.id === selectedVehicleId);
+  if (!v){ vehicleSummary.textContent = ''; return; }
+  const parts = [v.name];
+  if (rentOption) parts.push(rentOption);
+  if (v.hasChassis) parts.push(CHASSIS_LABELS[chassisValue()] || 'Шоссейное');
+  if (rentOption) parts.push(shiftModeId);
+  vehicleSummary.textContent = parts.join(' · ');
+}
 
 /* ---------- Секции и режимы (аккордеон «Маршрут» / «Выбор техники») ---------- */
 function updateRouteSummary(){
@@ -680,7 +807,6 @@ function setMode(mode){
   if (rent){
     vehicleSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } else {
-    // Карта была скрыта — просим Leaflet пересчитать размер, иначе тайлы отрисуются криво
     requestAnimationFrame(() => map.invalidateSize());
   }
 }
@@ -719,8 +845,7 @@ document.addEventListener('focusout', () => {
   }, 120);
 });
 
-/* ---------- Маркеры «?» (Маршрут, Возврат на МКАД, Режим, характеристики) ---------- */
-/* Делегирование: динамически создаваемые тултипы работают так же, как статические */
+/* ---------- Маркеры «?» ---------- */
 document.addEventListener('click', (e) => {
   const mark = e.target.closest('.help-mark');
   if (mark){
@@ -731,7 +856,7 @@ document.addEventListener('click', (e) => {
     if (!wasOpen) wrap.classList.add('open');
     return;
   }
-  if (e.target.closest('.help-tip a')) return; // ссылки внутри тултипа кликабельны
+  if (e.target.closest('.help-tip a')) return;
   const tip = e.target.closest('.help-tip');
   if (tip){
     e.stopPropagation();
@@ -780,18 +905,19 @@ if ('serviceWorker' in navigator &&
 
 /* ---------- Старт ---------- */
 createRow();
-initVehiclePicker();
+initVehicleSelect();
+initShiftSelect();
+shiftTip.textContent = SHIFT_TOOLTIP;
 updateReturnToggle();
 updateRouteSummary();
+updatePlateMiles();
 drawMkadRing();
 onMkadReady();
 returnToggle.addEventListener('change', scheduleRecalc);
-// Быстрая локальная геометрия (файл Яндекса) — доступна сразу
 loadMkadStatic().then(() => {
   onMkadReady();
   scheduleRecalc();
 });
-// Съезды из OSM догружаются фоном и не блокируют интерфейс
 ensureMKAD().then(() => {
   onMkadReady();
   scheduleRecalc();
