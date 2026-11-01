@@ -396,11 +396,17 @@ dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
   .price-field input{ height:40px; }
   .price-toggles{ gap:10px 12px; }
   .toggle-text{ font-size:13px; }
-  .km-input{ width:44px; }
-  /* Строки «Минимальная сумма аренды»: название — первая строка,
-     сумма и «Выбрать» — вторая, прижатые вправо */
-  .price-offer-row{ flex-wrap:wrap; gap:6px 10px; }
-  .price-offer-name{ flex-basis:100%; order:1; }
-  .price-offer-value{ order:2; margin-left:auto; }
-  .price-choose{ order:3; }
+  /* АНТИ-ЗУМ iOS: все компактные поля на мобильном — font-size 16px,
+     иначе Safari приближает страницу при фокусе и не возвращает масштаб */
+  .pct-input, .km-input{ font-size:16px; width:44px; }
+  .price-offer-name .pct-input{ font-size:16px; width:38px; height:22px; padding:0 4px; }
+  /* Строки «Минимальная сумма аренды» — строго ОДНА строка:
+     название (+поле %) слева, сумма и «Выбрать» справа */
+  .price-offer-row{ flex-wrap:nowrap; gap:4px; }
+  .price-offer-name{
+    flex:0 1 auto; order:0; min-width:0; font-size:12.5px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .price-offer-value{ order:0; margin-left:auto; font-size:14px; }
+  .price-choose{ order:0; height:28px; padding:0 7px; font-size:11.5px; border-radius:8px; }
 }
