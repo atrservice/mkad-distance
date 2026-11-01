@@ -163,10 +163,11 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 /* Ряд тумблеров «Цена с НДС» / «Включено в смену» (компонент .toggle, как «Возврат на МКАД») */
 .price-toggles{ display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap; margin:0 0 14px; }
 .price-toggles .toggle{ margin-top:0; }
+/* Компактные поля ставок/километров */
 .pct-input, .km-input{
-  width:56px; height:32px; padding:0 8px;
-  border:1px solid var(--border-strong); border-radius:8px;
-  font:inherit; font-size:14px; color:var(--ink); background:#fff; outline:none;
+  width:48px; height:28px; padding:0 6px;
+  border:1px solid var(--border-strong); border-radius:7px;
+  font:inherit; font-size:13px; color:var(--ink); background:#fff; outline:none;
   transition:border-color .15s, box-shadow .15s;
 }
 .pct-input:focus, .km-input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(28,94,222,.14); }
@@ -189,7 +190,8 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .price-offers-title{ font-size:13px; font-weight:700; color:var(--ink-2); }
 .price-offer-row{ display:flex; align-items:center; gap:10px; }
 .price-offer-name{ flex:1 1 auto; min-width:0; font-size:14px; color:var(--ink-2); display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
-.price-offer-name .pct-input{ width:48px; height:28px; font-size:13px; border-radius:7px; }
+/* Поле % в названии строки — высотой с текст */
+.price-offer-name .pct-input{ width:40px; height:22px; padding:0 4px; font-size:13px; border-radius:6px; }
 .price-offer-value{ font-size:18px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .price-choose{
   flex:none; height:36px; padding:0 14px;
@@ -390,4 +392,15 @@ dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
   /* В режиме аренды плашка пробега скрыта — лишний нижний отступ не нужен */
   body.mode-rent .page{ padding-bottom:calc(28px + env(safe-area-inset-bottom)); }
   .price-grid{ grid-template-columns:1fr; }
+  /* Компактность плашки цен на мобильном */
+  .price-field input{ height:40px; }
+  .price-toggles{ gap:10px 12px; }
+  .toggle-text{ font-size:13px; }
+  .km-input{ width:44px; }
+  /* Строки «Минимальная сумма аренды»: название — первая строка,
+     сумма и «Выбрать» — вторая, прижатые вправо */
+  .price-offer-row{ flex-wrap:wrap; gap:6px 10px; }
+  .price-offer-name{ flex-basis:100%; order:1; }
+  .price-offer-value{ order:2; margin-left:auto; }
+  .price-choose{ order:3; }
 }

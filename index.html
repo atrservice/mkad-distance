@@ -150,15 +150,14 @@
 <span class="price-miles-paid">Оплачиваемый пробег: <b id="milesPaid">—</b></span>
 <span class="price-miles-total">Общий пробег: <b id="milesTotal">—</b></span>
 </div>
-<!-- Ряд тумблеров: как «Возврат на МКАД», под разделителем плашки пробегов -->
+<!-- Ряд тумблеров: как «Возврат на МКАД», под разделителем плашки пробегов.
+     Ставка НДС редактируется ниже, в строке «Расчет с НДС … %» -->
 <div class="price-toggles">
 <label class="toggle">
 <input type="checkbox" id="vatToggle">
 <span class="toggle-box" aria-hidden="true"></span>
 <span class="toggle-text">Цена с НДС</span>
 </label>
-<input id="vatRate" class="pct-input" type="number" inputmode="decimal" min="0" step="any" value="22" aria-label="Ставка НДС для цены с НДС, процентов">
-<span class="unit-sign">%</span>
 <label class="toggle">
 <input type="checkbox" id="inclToggle" checked>
 <span class="toggle-box" aria-hidden="true"></span>
@@ -173,7 +172,7 @@
 <label for="priceShift">За смену 7+1, ₽</label>
 <span class="help-wrap">
 <button type="button" class="help-mark" id="helpMarkShiftPrice" aria-label="О базовой цене за смену">?</button>
-<span class="help-tip" role="tooltip">Базовая цена смены — за режим 7+1: 7 часов работы + 1 час подачи техники на объект (всего 8 оплачиваемых часов). «За час» по умолчанию = смена ÷ 8. Выбор других режимов «Смена» не меняет значения в полях — к сумме добавляются дополнительные часы по ставке «За час»: доп. часы = оплачиваемые часы режима − 8. Пример при смене 16 000 ₽ (час 2 000 ₽): режим «12» → 16 000 + (12 − 8) × 2 000 = 24 000 ₽; режим «12+1» → 16 000 + (13 − 8) × 2 000 = 26 000 ₽. Тумблер «Цена с НДС» умножает базовые поля на (1 + ставка ÷ 100).</span>
+<span class="help-tip" role="tooltip">Базовая цена смены — за режим 7+1: 7 часов работы + 1 час подачи техники на объект (всего 8 оплачиваемых часов). «За час» по умолчанию = смена ÷ 8. Выбор других режимов «Смена» не меняет значения в полях — к сумме добавляются дополнительные часы по ставке «За час»: доп. часы = оплачиваемые часы режима − 8. Пример при смене 16 000 ₽ (час 2 000 ₽): режим «12» → 16 000 + (12 − 8) × 2 000 = 24 000 ₽; режим «12+1» → 16 000 + (13 − 8) × 2 000 = 26 000 ₽. Тумблер «Цена с НДС» умножает базовые поля на (1 + ставка из строки «Расчет с НДС» ÷ 100).</span>
 </span>
 </span>
 <input id="priceShift" type="number" inputmode="decimal" min="0" step="any">
@@ -196,7 +195,7 @@
 <button type="button" class="price-choose" data-kind="cash">Выбрать</button>
 </div>
 <div class="price-offer-row">
-<span class="price-offer-name">Расчет с НДС <input id="vatRowPct" class="pct-input" type="number" inputmode="decimal" min="0" step="any" value="22" aria-label="Ставка НДС для расчета с НДС, процентов">%</span>
+<span class="price-offer-name">Расчет с НДС <input id="vatRowPct" class="pct-input" type="number" inputmode="decimal" min="0" step="any" value="22" aria-label="Ставка НДС, процентов">%</span>
 <b class="price-offer-value" id="priceVat">—</b>
 <button type="button" class="price-choose" data-kind="vat">Выбрать</button>
 </div>
