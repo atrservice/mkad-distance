@@ -157,22 +157,20 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .price-miles-paid b{ font-weight:800; }
 .price-miles-total{ font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .price-miles-total b{ font-weight:600; color:var(--ink-2); }
-/* Подпись и строка общего пробега на плашке маршрута */
-.plate-caption{ font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--accent); margin-bottom:2px; }
-.plate-total-line{ margin-top:2px; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
-/* Варианты итоговой суммы */
-.price-offers{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-strong); display:flex; flex-direction:column; gap:8px; }
-.price-offers-title{ font-size:13px; font-weight:700; color:var(--ink-2); }
-.price-offer-row{ display:flex; align-items:center; gap:10px; }
-.price-offer-name{ flex:1 1 auto; min-width:0; font-size:14px; color:var(--ink-2); }
-.price-offer-value{ font-size:18px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.price-choose{
-  flex:none; height:36px; padding:0 14px;
-  border:1px solid var(--border-strong); border-radius:10px; background:#fff;
-  color:var(--accent); font:inherit; font-size:13px; font-weight:600; cursor:pointer;
-  transition:border-color .15s;
+/* Строки пробегов — без переноса «км» на мобильных, кегль по ширине экрана */
+.price-miles-paid{ white-space:nowrap; font-size:clamp(15px, 5vw, 20px); }
+.price-miles-total{ white-space:nowrap; }
+/* Ряд тумблеров «Цена с НДС» / «Включено в смену» (компонент .toggle, как «Возврат на МКАД») */
+.price-toggles{ display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap; margin:0 0 14px; }
+.price-toggles .toggle{ margin-top:0; }
+.pct-input, .km-input{
+  width:56px; height:32px; padding:0 8px;
+  border:1px solid var(--border-strong); border-radius:8px;
+  font:inherit; font-size:14px; color:var(--ink); background:#fff; outline:none;
+  transition:border-color .15s, box-shadow .15s;
 }
-.price-choose:hover{ border-color:var(--accent); }
+.pct-input:focus, .km-input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(28,94,222,.14); }
+.unit-sign{ font-size:13px; color:var(--ink-2); }
 .price-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 .price-field{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--ink-2); }
 /* Подпись поля цен с маркером «?» в одну строку */
@@ -186,12 +184,27 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 }
 .price-field input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(28,94,222,.14); }
 .price-total-note{ width:100%; font-size:12.5px; line-height:1.45; color:var(--ink-2); }
+/* Варианты итоговой суммы */
+.price-offers{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-strong); display:flex; flex-direction:column; gap:8px; }
+.price-offers-title{ font-size:13px; font-weight:700; color:var(--ink-2); }
+.price-offer-row{ display:flex; align-items:center; gap:10px; }
+.price-offer-name{ flex:1 1 auto; min-width:0; font-size:14px; color:var(--ink-2); display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.price-offer-name .pct-input{ width:48px; height:28px; font-size:13px; border-radius:7px; }
+.price-offer-value{ font-size:18px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.price-choose{
+  flex:none; height:36px; padding:0 14px;
+  border:1px solid var(--border-strong); border-radius:10px; background:#fff;
+  color:var(--accent); font:inherit; font-size:13px; font-weight:600; cursor:pointer;
+  transition:border-color .15s;
+}
+.price-choose:hover{ border-color:var(--accent); }
 /* ---------- Режим «Стоимость аренды» ---------- */
 body.mode-rent .layout{ grid-template-columns:1fr; }
 body.mode-rent .col-side{ display:none; }
 /* ---------- Адреса ---------- */
 .addr-list{ display:flex; flex-direction:column; gap:10px; }
 .addr-row{ display:grid; grid-template-columns:28px minmax(0,1fr) 36px; gap:8px; align-items:start; }
+/* Нумерация — кружок 20×20 как у маркера тултипа, цвета прежние */
 .addr-num{
   width:20px; height:20px; margin:14px auto 0;
   display:flex; align-items:center; justify-content:center;
@@ -268,11 +281,13 @@ body.mode-rent .col-side{ display:none; }
 .suggest-sub{ font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
 /* ---------- Плашка пробега ---------- */
 .plate-card{ display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.plate-caption{ font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--accent); margin-bottom:2px; }
 .plate-total{
   display:flex; align-items:baseline; gap:6px;
   font-size:36px; font-weight:800; letter-spacing:-.02em; font-variant-numeric:tabular-nums;
 }
 .plate-unit{ font-size:15px; font-weight:600; color:var(--muted); }
+.plate-total-line{ margin-top:2px; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .plate-status{ margin-top:4px; font-size:12.5px; line-height:1.45; color:var(--ink-2); }
 .plate-dur{
   font-size:14px; color:var(--ink-2); white-space:nowrap;
