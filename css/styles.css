@@ -405,7 +405,7 @@ dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
   .price-offer-row{ flex-wrap:nowrap; gap:4px; }
   .price-offer-name{
     flex:0 1 auto; order:0; min-width:0; font-size:12.5px;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    flex-wrap:nowrap; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
   .price-offer-value{ order:0; margin-left:auto; font-size:14px; }
   .price-choose{ order:0; height:28px; padding:0 7px; font-size:11.5px; border-radius:8px; }

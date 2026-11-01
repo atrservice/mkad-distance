@@ -833,7 +833,9 @@ function recalcRentTotal(){
     sym.push(kmLabel);
     num.push(paidKm + ' км × ' + fmtRub(kmRate) + '/км');
   } else if (rawPaidKm > 0 && inclToggle.checked){
-    tail = ' · пробег ' + rawPaidKm + ' км не больше включённых в смену ' + pctVal(inclKm, 10) + ' км — не оплачивается';
+    const inc = pctVal(inclKm, 10);
+    tail = ' · пробег ' + rawPaidKm + ' км ' + (rawPaidKm < inc ? 'меньше' : 'равен') +
+      ' включённым в смену ' + inc + ' км — не оплачивается';
   }
   const vatNote = vatToggle.checked ? ' · цены в полях с НДС ' + q + '%' : '';
   if (lastDistanceM == null){
