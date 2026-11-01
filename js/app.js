@@ -50,6 +50,7 @@ const vatPct = $('#vatPct');
 const priceTotalNote = $('#priceTotalNote');
 const milesPaid = $('#milesPaid');
 const milesTotal = $('#milesTotal');
+const vatToggle = $('#vatToggle');
 const modeCalcBtn = $('#modeCalcBtn');
 const modeOrderBtn = $('#modeOrderBtn');
 
@@ -77,6 +78,7 @@ let lastDistanceM = null;   // общий пробег последнего ус
 let lastRouteData = null;   // данные геометрии для оплачиваемого пробега; при ошибке НЕ меняется
 let rentOption = null;      // выбранный вариант характеристики
 let shiftModeId = SHIFT_DEFAULT; // выбранный режим «Смена» (влияет только на сумму, поля не меняет)
+let vatOn = false;          // крыжик «Цена с НДС»: поля цен = база × (1 + VAT_RATE)
 
 /* ---------- Утилиты ---------- */
 const kmFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -662,7 +664,7 @@ function renderVehicleDetails(v){
   updatePlateMiles();
 }
 
-/* ---------- Режим «Смена» и цены ---------- */
+/* ---------- Режим «Смена», НДС и цены ---------- */
 function shiftMode(){
   return SHIFT_MODES.find(m => m.id === shiftModeId) || SHIFT_MODES[0];
 }
@@ -676,13 +678,17 @@ function getBasePrices(v, option, chassis){
   if (!byOption) return null;
   return byOption[chassis] || byOption.highway || null;
 }
+/* Заполняет поля цен базовыми значениями; при включённом крыжике «Цена с НДС» — база × (1 + VAT_RATE).
+   Переключение крыжика и смена варианта/шасси сбрасывают ручные правки. */
 function fillBasePrices(v, option, chassis){
   const p = getBasePrices(v, option, chassis);
+  const mult = vatOn ? (1 + VAT_RATE) : 1;
   shiftModeId = SHIFT_DEFAULT;
   shiftSelect.value = SHIFT_DEFAULT;
-  priceShift.value = p ? p.shift : 0;
-  priceHour.value = p ? Math.round(p.shift / 8) : 0;
-  priceKm.value = p ? p.km : 0;
+  const shift = p ? Math.round(p.shift * mult) : 0;
+  priceShift.value = shift;
+  priceHour.value = Math.round(shift / 8);
+  priceKm.value = p ? Math.round(p.km * mult) : 0;
 }
 function priceVal(el){
   const n = parseFloat(el.value);
@@ -710,6 +716,15 @@ document.querySelectorAll('input[name="chassis"]').forEach(r => {
     }
     updateVehicleSummary();
   });
+});
+// Крыжик «Цена с НДС»: поля цен = база × (1 + VAT_RATE) или обратно к базе
+vatToggle.addEventListener('change', () => {
+  vatOn = vatToggle.checked;
+  const v = VEHICLES.find(x => x.id === selectedVehicleId);
+  if (v && rentOption){
+    fillBasePrices(v, rentOption, chassisValue());
+    recalcRentTotal();
+  }
 });
 shiftSelect.addEventListener('change', () => {
   shiftModeId = shiftSelect.value || SHIFT_DEFAULT;
@@ -741,9 +756,12 @@ function paidDistanceFor(v){
   if (v.id === 'avtokran') return lastRouteData.outsideDelivery + lastRouteData.outsideReloc;
   return lastDistanceM || 0;
 }
-/* ФОРМУЛА: Сумма(наличная) = смена(7+1) + (доп. часы режима + доп. часы типа) × час
-           + Оплачиваемый пробег (целые км) × цена/км.
-   Варианты: с НДС = наличная × (1 + VAT_RATE); без НДС = наличная / NO_VAT_DIVISOR. */
+/* ФОРМУЛА: формульная сумма = смена(7+1) + (доп. часы режима + доп. часы типа) × час
+           + Оплачиваемый пробег (целые км) × цена/км — всегда из текущих полей.
+   Строки-варианты БЕЗ двойного НДС:
+   - крыжик ВЫКЛ: наличный = сумма; с НДС = сумма × (1 + VAT_RATE); без НДС = сумма / NO_VAT_DIVISOR;
+   - крыжик ВКЛ (поля уже с НДС): с НДС = сумма; наличный = сумма / (1 + VAT_RATE);
+     без НДС = сумма / (1 + VAT_RATE) / NO_VAT_DIVISOR. */
 function recalcRentTotal(){
   const v = VEHICLES.find(x => x.id === selectedVehicleId);
   if (!v || !rentOption) return;
@@ -756,26 +774,36 @@ function recalcRentTotal(){
   const total = shift + (extraMode + extraType) * hourRate + paidKm * kmRate;
   milesTotal.textContent = lastDistanceM == null ? 'не рассчитан' : fmtKm(lastDistanceM);
   milesPaid.textContent = lastDistanceM == null ? '—' : paidKm + ' км';
-  priceTotal.textContent = fmtRub(total);
-  priceVat.textContent = moneyFmt.format(total * (1 + VAT_RATE)) + ' ₽';
-  priceNoVat.textContent = moneyFmt.format(total / NO_VAT_DIVISOR) + ' ₽';
+  let cash, vat, noVat;
+  if (vatOn){
+    vat = total;                       // поля уже с НДС — сумма и есть «Расчет с НДС»
+    cash = total / (1 + VAT_RATE);     // наличный = с НДС / 1,22
+    noVat = cash / NO_VAT_DIVISOR;     // без НДС = с НДС / 1,22 / 0,92
+  } else {
+    cash = total;
+    vat = total * (1 + VAT_RATE);
+    noVat = total / NO_VAT_DIVISOR;
+  }
+  priceTotal.textContent = fmtRub(cash);
+  priceVat.textContent = moneyFmt.format(vat) + ' ₽';
+  priceNoVat.textContent = moneyFmt.format(noVat) + ' ₽';
   vatPct.textContent = String(Math.round(VAT_RATE * 100));
   const kmLabel = (v.id === 'avtovyshka' || v.id === 'prikrytie') ? 'пробег' : 'оплачиваемый пробег';
   const typeLabel = v.id === 'avtokran' ? 'перебазировки'
     : v.id === 'manipulyator' ? 'доп. адреса'
     : 'доп. часы';
-  // Строка расчёта: символическая часть + числа, смена в скобках
   const sym = ['смена (' + shiftModeId + ')'];
   const num = [fmtRub(shift)];
   if (extraMode > 0){ sym.push('доп. часы смены (' + extraMode + ' ч)'); num.push(extraMode + ' ч × ' + fmtRub(hourRate)); }
   if (extraType > 0){ sym.push(typeLabel + ' (' + extraType + ' ч)'); num.push(extraType + ' ч × ' + fmtRub(hourRate)); }
   sym.push(kmLabel);
+  const vatNote = vatOn ? ' · цены в полях с НДС' : '';
   if (lastDistanceM == null){
     priceTotalNote.textContent = 'Расчет = ' + sym.join(' + ') + ' = ' + num.join(' + ') +
-      ' (пробег пока не рассчитан — введите адрес в разделе «Маршрут»)';
+      ' (пробег пока не рассчитан — введите адрес в разделе «Маршрут»)' + vatNote;
   } else {
     num.push(paidKm + ' км × ' + fmtRub(kmRate) + '/км');
-    priceTotalNote.textContent = 'Расчет = ' + sym.join(' + ') + ' = ' + num.join(' + ');
+    priceTotalNote.textContent = 'Расчет = ' + sym.join(' + ') + ' = ' + num.join(' + ') + vatNote;
   }
 }
 function updateVehicleSummary(){

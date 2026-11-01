@@ -3,69 +3,107 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Сбор координат съездов МКАД</title>
+<title>Сборщик съездов МКАД</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  body{ font-family:system-ui,sans-serif; margin:0; padding:16px; color:#101828; }
-  #map{ height:60vh; border:1px solid #d0d7e2; border-radius:12px; }
-  .bar{ display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; }
-  button{ padding:10px 14px; border:1px solid #d0d7e2; border-radius:10px; background:#fff; cursor:pointer; font-size:14px; }
-  button.on{ border-color:#1c5ede; background:#eef4ff; color:#1c5ede; font-weight:600; }
-  textarea{ width:100%; height:140px; font-family:monospace; font-size:12px; }
-  ol{ font-size:13px; }
+body{ font-family:system-ui,Arial,sans-serif; margin:0; }
+#map{ position:fixed; inset:0; }
+.panel{
+  position:fixed; top:8px; right:8px; z-index:1000; width:360px;
+  background:#fff; border:1px solid #c8cdd6; border-radius:10px; padding:10px;
+  font-size:13px; max-height:calc(100% - 16px); overflow:auto; box-shadow:0 4px 16px rgba(0,0,0,.15);
+}
+.row{ display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap; align-items:center; }
+button{ padding:6px 10px; cursor:pointer; border:1px solid #c8cdd6; border-radius:8px; background:#fff; }
+button.on{ background:#1c5ede; border-color:#1c5ede; color:#fff; }
+textarea{ width:100%; height:64px; font-size:11px; font-family:monospace; }
+.hint{ color:#555; font-size:11px; line-height:1.4; margin:4px 0 8px; }
+label{ font-weight:600; }
 </style>
 </head>
 <body>
-<h2>Сбор координат съездов МКАД</h2>
-<ol>
-  <li>Выберите сторону кнопкой («внешняя» / «внутренняя»).</li>
-  <li>Кликните по карте в точке, где рампа съезда/въезда примыкает к полотну МКАД нужной стороны.</li>
-  <li>Скопируйте JSON и вставьте массив в <b>js/config.js</b> в <b>MKAD_JUNCTIONS_OVERRIDE</b>.</li>
-</ol>
-<div class="bar">
-  <button id="btnOuter" class="on">Сторона: внешняя</button>
-  <button id="btnInner">Сторона: внутренняя</button>
-  <button id="btnCopy">Скопировать JSON</button>
-  <button id="btnClear">Очистить</button>
-</div>
 <div id="map"></div>
-<div class="bar"><textarea id="out" readonly></textarea></div>
+<div class="panel">
+<div class="row"><b>Сторона:</b>
+<button id="sideOuter" class="on">внешняя</button>
+<button id="sideInner">внутренняя</button>
+</div>
+<div class="row"><b>Тип:</b>
+<button id="typeExit" class="on">съезд (exit)</button>
+<button id="typeEnter">въезд (enter)</button>
+</div>
+<div class="row">
+<button id="undo">Отменить последнюю</button>
+<button id="clear">Очистить всё</button>
+</div>
+<div class="hint">Клик по карте добавляет точку с текущими стороной/типом. Кликайте по ходу движения
+стороны: внешняя — против часовой, внутренняя — по часовой. Отмечайте только место примыкания рампы
+к полотну МКАД: съезд = рампа уходит вправо, въезд = рампа вливается справа.
+Маркеры: красные = внешняя, зелёные = внутренняя; светлая середина = exit, тёмная = enter.</div>
+<div>Точек: <span id="cnt">0</span></div>
+<label>Внешняя → MKAD_OUTER_JUNCTIONS:</label>
+<textarea id="outOuter" readonly></textarea>
+<div class="row"><button id="copyOuter">Копировать внешнюю</button></div>
+<label>Внутренняя → MKAD_INNER_JUNCTIONS:</label>
+<textarea id="outInner" readonly></textarea>
+<div class="row"><button id="copyInner">Копировать внутреннюю</button></div>
+</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  const map = L.map('map').setView([55.72, 37.62], 10);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-  let side = 'outer';
-  const pts = [];
-  const markers = [];
-  const out = document.getElementById('out');
-  const bO = document.getElementById('btnOuter');
-  const bI = document.getElementById('btnInner');
-  bO.onclick = () => { side = 'outer'; bO.classList.add('on'); bI.classList.remove('on'); bO.textContent = 'Сторона: внешняя'; };
-  bI.onclick = () => { side = 'inner'; bI.classList.add('on'); bO.classList.remove('on'); bI.textContent = 'Сторона: внутренняя'; };
-  map.on('click', (e) => {
-    const lon = +e.latlng.lng.toFixed(6), lat = +e.latlng.lat.toFixed(6);
-    pts.push({ lon, lat, side });
-    markers.push(L.circleMarker([lat, lon], {
-      radius: 7, color: side === 'outer' ? '#d92d20' : '#1c5ede',
-      weight: 3, fillColor: '#fff', fillOpacity: 1
-    }).bindTooltip(side + ': ' + lat + ', ' + lon).addTo(map));
-    render();
-  });
-  function render(){
-    out.value = '[\n' + pts.map(p =>
-      '  { lon: ' + p.lon + ', lat: ' + p.lat + ", side: '" + p.side + "' }"
-    ).join(',\n') + '\n]';
-  }
-  document.getElementById('btnCopy').onclick = () => {
-    out.select();
-    document.execCommand('copy');
-  };
-  document.getElementById('btnClear').onclick = () => {
-    pts.length = 0;
-    markers.forEach(m => m.remove());
-    markers.length = 0;
-    render();
-  };
+const map = L.map('map').setView([55.72, 37.62], 11);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OSM' }).addTo(map);
+let side = 'outer', type = 'exit';
+const pts = [];
+const markers = [];
+const $ = (id) => document.getElementById(id);
+function setSide(s){
+  side = s;
+  $('sideOuter').classList.toggle('on', s === 'outer');
+  $('sideInner').classList.toggle('on', s === 'inner');
+}
+function setType(t){
+  type = t;
+  $('typeExit').classList.toggle('on', t === 'exit');
+  $('typeEnter').classList.toggle('on', t === 'enter');
+}
+$('sideOuter').addEventListener('click', () => setSide('outer'));
+$('sideInner').addEventListener('click', () => setSide('inner'));
+$('typeExit').addEventListener('click', () => setType('exit'));
+$('typeEnter').addEventListener('click', () => setType('enter'));
+map.on('click', (e) => {
+  pts.push({ lon: +e.latlng.lng.toFixed(6), lat: +e.latlng.lat.toFixed(6), side, type });
+  markers.push(L.circleMarker(e.latlng, {
+    radius: 6, weight: 2,
+    color: side === 'outer' ? '#d92d20' : '#067647',
+    fillColor: type === 'exit' ? '#ffffff' : '#101828',
+    fillOpacity: 1
+  }).addTo(map));
+  render();
+});
+$('undo').addEventListener('click', () => {
+  const p = pts.pop();
+  const m = markers.pop();
+  if (m) m.remove();
+  render();
+});
+$('clear').addEventListener('click', () => {
+  if (!confirm('Удалить все точки?')) return;
+  pts.length = 0;
+  markers.forEach(m => m.remove());
+  markers.length = 0;
+  render();
+});
+function buildString(sd){
+  return pts.filter(p => p.side === sd).map(p => p.lon + ',' + p.lat + ',' + p.type).join(';');
+}
+function render(){
+  $('cnt').textContent = String(pts.length);
+  $('outOuter').value = buildString('outer');
+  $('outInner').value = buildString('inner');
+}
+$('copyOuter').addEventListener('click', () => navigator.clipboard.writeText($('outOuter').value));
+$('copyInner').addEventListener('click', () => navigator.clipboard.writeText($('outInner').value));
+render();
 </script>
 </body>
 </html>

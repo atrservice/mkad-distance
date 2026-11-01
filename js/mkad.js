@@ -1,6 +1,6 @@
 import { haversine, nearestOnLines, pointInPolygon, lineLength } from './geo.js';
 import { MKAD_JUNCTIONS_OVERRIDE } from './config.js';
-import { MKAD_OUTER_JUNCTIONS, MKAD_INNER_JUNCTIONS } from './mkad-junctions.js';
+import { MKAD_OUTER_EXIT, MKAD_OUTER_ENTER, MKAD_INNER_EXIT, MKAD_INNER_ENTER } from './mkad-junctions.js';
 
 // Аварийное километровое кольцо (108 точек), если файла данных нет
 export const MKAD_FALLBACK_RING = [
@@ -51,23 +51,25 @@ const QUERY =
   '(.mkad;.links;);' +
   'out geom;';
 
-/* ---------- Ручные списки съездов (js/mkad-junctions.js) ---------- */
-function parseJunctionList(str, side){
+/* ---------- Ручные списки съездов/въездов (js/mkad-junctions.js) ---------- */
+function parseJunctionList(str, side, type){
   if (!str || typeof str !== 'string') return [];
   const out = [];
   str.split(';').forEach(pair => {
     const s = pair.trim();
     if (!s) return;
-    const [lonS, latS] = s.split(',');
-    const lon = parseFloat(lonS), lat = parseFloat(latS);
+    const parts = s.split(',');
+    const lon = parseFloat(parts[0]), lat = parseFloat(parts[1]);
     if (!isFinite(lon) || !isFinite(lat)) return;
-    out.push({ lon, lat, side, idx: out.length });
+    out.push({ lon, lat, side, type, idx: out.length });
   });
   return out;
 }
-const manualJunctions =
-  parseJunctionList(MKAD_OUTER_JUNCTIONS, 'outer')
-    .concat(parseJunctionList(MKAD_INNER_JUNCTIONS, 'inner'));
+const manualJunctions = []
+  .concat(parseJunctionList(MKAD_OUTER_EXIT, 'outer', 'exit'))
+  .concat(parseJunctionList(MKAD_OUTER_ENTER, 'outer', 'enter'))
+  .concat(parseJunctionList(MKAD_INNER_EXIT, 'inner', 'exit'))
+  .concat(parseJunctionList(MKAD_INNER_ENTER, 'inner', 'enter'));
 
 function mergeOverride(parsed){
   const base = Array.isArray(parsed) ? parsed : [];
@@ -335,32 +337,39 @@ function dirAtKm(t){
 /* ---------- Точка въезда/съезда ---------- */
 export function mkadAccessPoint(address, inside, role, shiftKm = 0.4){
   const side = inside ? 'inner' : 'outer';
-  const js = (state.junctions || []).filter(j => j.side === side);
-  const manual = js.filter(j => typeof j.idx === 'number');
-  // 1) Ручные упорядоченные списки: старт — ближайший съезд; финиш — кандидаты по порядку
+  // 1) Ручные упорядоченные списки: старт — со съездов (exit), финиш — с въездов (enter).
+  //    Кандидаты финиша: ближайший → следующий по ходу → второй следующий.
+  const manual = (state.junctions || []).filter(j => j.side === side && typeof j.idx === 'number');
   if (manual.length){
-    let bestPos = 0, bestD = Infinity;
-    manual.forEach((j, i) => {
-      const d = haversine(address, [j.lon, j.lat]);
-      if (d < bestD){ bestD = d; bestPos = i; }
-    });
-    const len = manual.length;
-    const at = (i) => manual[((i % len) + len) % len];
-    let pick = at(bestPos);
-    if (role === 'end'){
-      if (shiftKm === 0.5) pick = at(bestPos + 1);
-      else if (shiftKm === 0.9) pick = at(bestPos + 2);
+    const want = role === 'start' ? 'exit' : 'enter';
+    const list = manual.filter(j => j.type === want);
+    if (list.length){
+      let bestPos = 0, bestD = Infinity;
+      list.forEach((j, i) => {
+        const d = haversine(address, [j.lon, j.lat]);
+        if (d < bestD){ bestD = d; bestPos = i; }
+      });
+      const len = list.length;
+      const at = (i) => list[((i % len) + len) % len];
+      let pick = at(bestPos);
+      if (role === 'end'){
+        if (shiftKm === 0.5) pick = at(bestPos + 1);
+        else if (shiftKm === 0.9) pick = at(bestPos + 2);
+      }
+      return { point: [pick.lon, pick.lat], bearingDeg: null };
     }
-    return { point: [pick.lon, pick.lat], bearingDeg: null };
   }
   // 2) Реальные узлы съездов (Overpass/override), только базовый сдвиг
-  if (shiftKm === 0.4 && js.length){
-    let best = null;
-    for (const j of js){
-      const d = haversine(address, [j.lon, j.lat]);
-      if (!best || d < best.d) best = { d, j };
+  if (shiftKm === 0.4){
+    const js = (state.junctions || []).filter(j => j.side === side);
+    if (js.length){
+      let best = null;
+      for (const j of js){
+        const d = haversine(address, [j.lon, j.lat]);
+        if (!best || d < best.d) best = { d, j };
+      }
+      return { point: [best.j.lon, best.j.lat], bearingDeg: null };
     }
-    return { point: [best.j.lon, best.j.lat], bearingDeg: null };
   }
   // 3) Точная линия нужной стороны (файл Яндекса)
   const cw = state.carriageways ? state.carriageways[side] : null;
