@@ -56,6 +56,8 @@ const vatRowPct = $('#vatRowPct');
 const noVatPct = $('#noVatPct');
 const modeCalcBtn = $('#modeCalcBtn');
 const modeOrderBtn = $('#modeOrderBtn');
+const mapExpandBtn = $('#mapExpand');
+const mapBackdrop = $('#mapBackdrop');
 
 /* ---------- Карта ---------- */
 const map = L.map('map', { zoomControl: true }).setView([55.72, 37.62], 10);
@@ -211,6 +213,7 @@ addrList.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   dragRow = wrap;
   wrap.classList.add('is-dragging');
+  addrList.classList.add('is-dragging');
   handle.setPointerCapture(e.pointerId);
 });
 addrList.addEventListener('pointermove', (e) => {
@@ -230,6 +233,7 @@ addrList.addEventListener('pointercancel', finishDrag);
 function finishDrag(){
   if (!dragRow) return;
   dragRow.classList.remove('is-dragging');
+  addrList.classList.remove('is-dragging');
   dragRow = null;
   syncRowsFromDom();
 }
@@ -453,10 +457,14 @@ async function recalc(){
     const lastInside = isInsideMKAD(last) === true;
     const needStart = !firstInside;                          // первый внутри МКАД -> старт с адреса (0 км)
     const needReturn = !lastInside && returnToggle.checked;  // внутри МКАД возврат игнорируется даже при включённом тумблере
+    // Съезд/въезд выбираем ПО ДОРОГАМ (OSRM table); null — ближайший по прямой
+    const startPos = needStart ? await probeBestJunction(first, firstInside, 'start') : null;
+    const endPos = needReturn ? await probeBestJunction(last, lastInside, 'end') : null;
+    if (seq !== calcSeq) return;
     const buildPlan = (endShiftKm) => {
       const pts = [], bearings = [], labels = [], mkadPts = [];
       if (needStart){
-        const acc = mkadAccessPoint(first, firstInside, 'start', 0.4);
+        const acc = mkadAccessPoint(first, firstInside, 'start', 0.4, startPos);
         pts.push(acc.point); bearings.push(acc.bearingDeg);
         labels.push('МКАД'); mkadPts.push(acc.point);
       }
@@ -465,7 +473,7 @@ async function recalc(){
         labels.push('Адрес ' + (i + 1));
       });
       if (needReturn){
-        const acc = mkadAccessPoint(last, lastInside, 'end', endShiftKm);
+        const acc = mkadAccessPoint(last, lastInside, 'end', endShiftKm, endPos);
         pts.push(acc.point); bearings.push(acc.bearingDeg);
         labels.push('МКАД');
         if (!mkadPts.some(p => p[0] === acc.point[0] && p[1] === acc.point[1])){
@@ -649,6 +657,52 @@ function outsideMkadDistance(pts){
     total += haversine(a, b);
   }
   return total;
+}
+
+/* ---------- Выбор съезда ПО ДОРОГАМ, а не по прямой (OSRM table) ---------- */
+/* Для дальних адресов ближайший съезд по прямой может быть неверным по дороге
+   (Новопетровское → Новорижское шоссе, а не Пятницкое). Берём 4 ближайших по прямой
+   кандидата и одним запросом table/v1 получаем дорожные дистанции, выбираем минимум.
+   Ошибка table → фолбэк: ближайший по прямой (preferPos = null). */
+const junctionProbeCache = new Map();
+async function probeBestJunction(address, inside, role){
+  const st = getMKAD();
+  const side = inside ? 'inner' : 'outer';
+  const want = role === 'start' ? 'exit' : 'enter';
+  const list = (st.junctions || []).filter(j => j.side === side && j.type === want && typeof j.idx === 'number');
+  if (list.length < 2) return null;
+  const near = list
+    .map((j, i) => ({ i, d: haversine(address, [j.lon, j.lat]) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 4)
+    .map(x => x.i);
+  if (near.length < 2) return null;
+  const key = role + '|' + address.map(c => c.toFixed(5)).join(',') + '|' + near.join(',');
+  if (junctionProbeCache.has(key)) return junctionProbeCache.get(key);
+  let best = null;
+  try {
+    const cand = near.map(i => list[i].lon + ',' + list[i].lat);
+    const addr = address[0] + ',' + address[1];
+    const coords = role === 'start' ? cand.concat([addr]).join(';') : [addr].concat(cand).join(';');
+    const sources = role === 'start' ? near.map((_, k) => k).join(';') : '0';
+    const destinations = role === 'start' ? String(near.length) : near.map((_, k) => k + 1).join(';');
+    const res = await fetch('https://router.project-osrm.org/table/v1/driving/' + coords +
+      '?sources=' + sources + '&destinations=' + destinations);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.code !== 'Ok' || !Array.isArray(data.distances)) throw new Error('table: ' + data.code);
+    let bestK = -1, bestD = Infinity;
+    for (let k = 0; k < near.length; k++){
+      const d = role === 'start' ? data.distances[k][0] : data.distances[0][k];
+      if (isFinite(d) && d < bestD){ bestD = d; bestK = k; }
+    }
+    if (bestK >= 0) best = near[bestK];
+  } catch (e){
+    console.warn('OSRM table недоступен — съезд по прямой:', e);
+  }
+  if (junctionProbeCache.size > 60) junctionProbeCache.delete(junctionProbeCache.keys().next().value);
+  junctionProbeCache.set(key, best);
+  return best;
 }
 
 /* ---------- Франшиза «Включено в смену» ---------- */
@@ -931,6 +985,7 @@ function setMode(mode){
   routeHead.tabIndex = rent ? 0 : -1;
   vehicleHead.tabIndex = rent ? -1 : 0;
   updateVehicleSummary();
+  if (rent && document.body.classList.contains('map-full')) setMapFull(false);
   if (rent){
     vehicleSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } else {
@@ -956,6 +1011,21 @@ vehicleHead.addEventListener('click', () => {
 modeCalcBtn.addEventListener('click', () => setMode('route'));
 modeOrderBtn.addEventListener('click', () => {
   toast('Режим «Оформить заказ» появится позже — после введения регистрации');
+});
+
+/* ---------- Разворот карты на весь экран (десктоп) ---------- */
+function setMapFull(on){
+  document.body.classList.toggle('map-full', on);
+  mapBackdrop.hidden = !on;
+  mapExpandBtn.setAttribute('aria-expanded', String(on));
+  mapExpandBtn.setAttribute('aria-label', on ? 'Свернуть карту' : 'Развернуть карту');
+  requestAnimationFrame(() => map.invalidateSize());
+  setTimeout(() => map.invalidateSize(), 250);
+}
+mapExpandBtn.addEventListener('click', () => setMapFull(!document.body.classList.contains('map-full')));
+mapBackdrop.addEventListener('click', () => setMapFull(false));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('map-full')) setMapFull(false);
 });
 
 /* ---------- Плашка и клавиатура на мобильном ---------- */

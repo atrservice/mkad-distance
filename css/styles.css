@@ -11,6 +11,7 @@
   --danger:#d92d20;
   --ok:#067647;
   --warn:#b54708;
+  --warn-soft:#fbe3cd;
   --radius:16px;
   --shadow:0 1px 2px rgba(16,24,40,.05), 0 4px 16px rgba(16,24,40,.04);
 }
@@ -129,6 +130,10 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .section:not(.is-collapsed) .section-km,
 .section:not(.is-collapsed) .section-chevron{ display:none; }
 .section.is-collapsed .section-body{ display:none; }
+/* Свёрнутая секция подсвечена оранжевым, чтобы не терялась на экране */
+.section.is-collapsed{ border-color:var(--warn-soft); }
+.section.is-collapsed .section-title{ color:var(--warn); }
+.section.is-collapsed .section-chevron{ border-right-color:var(--warn); border-bottom-color:var(--warn); }
 .section-body > .plate-card{
   margin-top:16px; padding:14px;
   border:1px solid var(--border); border-radius:12px; background:#f8fafc;
@@ -233,8 +238,16 @@ body.mode-rent .col-side{ display:none; }
   cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none;
 }
 .addr-drag:active{ cursor:grabbing; }
-.addr-row.is-dragging{ opacity:.55; }
-.addr-row.is-dragging .addr-field input{ border-color:var(--accent); border-style:dashed; }
+.addr-row{ transition:opacity .15s, filter .15s, transform .15s, box-shadow .15s; }
+/* Захваченная строка — «второй слой»: крупнее и выше остальных;
+   остальной список — приглушённый размытый «первый слой» */
+.addr-list.is-dragging .addr-row:not(.is-dragging){ opacity:.45; filter:blur(1px); }
+.addr-row.is-dragging{
+  position:relative; z-index:5; transform:scale(1.02);
+  background:#fff; border-radius:12px;
+  box-shadow:0 0 0 1px var(--border-strong), 0 10px 24px rgba(16,24,40,.16);
+}
+.addr-row.is-dragging .addr-field input{ border-color:var(--accent); }
 .addr-del{
   width:36px; height:48px; border:1px solid var(--border); border-radius:12px;
   background:#fff; color:var(--muted); font-size:20px; line-height:1; cursor:pointer;
@@ -341,7 +354,27 @@ select.spec-control{
 .leg .muted{ min-width:62px; text-align:right; }
 .muted{ color:var(--muted); font-size:12.5px; }
 /* ---------- Карта ---------- */
-.map-card{ padding:8px; }
+.map-card{ padding:8px; position:relative; }
+/* Кнопка разворота карты (десктоп) и полноэкранный режим */
+.map-expand{
+  position:absolute; top:14px; right:14px; z-index:800;
+  width:36px; height:36px; border:1px solid var(--border); border-radius:10px;
+  background:#fff; color:var(--ink-2); cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:var(--shadow); transition:color .15s, border-color .15s;
+}
+.map-expand:hover{ color:var(--accent); border-color:var(--accent); }
+.map-expand svg{ width:16px; height:16px; }
+body:not(.map-full) .map-expand .ic-collapse{ display:none; }
+body.map-full .map-expand .ic-expand{ display:none; }
+.map-backdrop{ position:fixed; inset:0; z-index:1400; background:rgba(16,24,40,.45); }
+.map-backdrop[hidden]{ display:none; }
+body.map-full .map-card{
+  position:fixed; inset:24px; z-index:1500; margin:0; padding:8px;
+  width:auto; max-width:none;
+}
+body.map-full #map{ height:100%; }
+@media (max-width:1000px){ .map-expand{ display:none; } }
 #map{ height:420px; border-radius:12px; }
 .pin-bubble{
   width:28px; height:28px; display:flex; align-items:center; justify-content:center;

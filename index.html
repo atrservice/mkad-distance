@@ -211,7 +211,13 @@
 </section>
 <!-- ПРАВАЯ КОЛОНКА -->
 <section class="col-side">
-<div class="card map-card"><div id="map" aria-label="Карта маршрута"></div></div>
+<div class="card map-card">
+<button type="button" class="map-expand" id="mapExpand" aria-label="Развернуть карту" aria-expanded="false">
+<svg class="ic-expand" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2H2v4"/><path d="M2 2l5 5"/><path d="M10 14h4v-4"/><path d="M14 14l-5-5"/></svg>
+<svg class="ic-collapse" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6h4V2"/><path d="M6 6L3 3"/><path d="M14 10h-4v4"/><path d="M10 10l3 3"/></svg>
+</button>
+<div id="map" aria-label="Карта маршрута"></div>
+</div>
 <div class="card" id="legsCard" hidden>
 <h2 class="card-title">Участки маршрута</h2>
 <ol class="legs" id="legsList"></ol>
@@ -230,6 +236,7 @@
 <p>Приложение откроется как отдельное мини-приложение: полноэкранно, со своей иконкой.</p>
 <button id="helpClose" class="btn btn-primary" type="button">Понятно</button>
 </dialog>
+<div class="map-backdrop" id="mapBackdrop" hidden></div>
 <div id="toast" role="status"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module" src="js/app.js"></script>

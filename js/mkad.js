@@ -335,10 +335,11 @@ function dirAtKm(t){
 }
 
 /* ---------- Точка въезда/съезда ---------- */
-export function mkadAccessPoint(address, inside, role, shiftKm = 0.4){
+export function mkadAccessPoint(address, inside, role, shiftKm = 0.4, preferPos = null){
   const side = inside ? 'inner' : 'outer';
   // 1) Ручные упорядоченные списки: старт — со съездов (exit), финиш — с въездов (enter).
-  //    Кандидаты финиша: ближайший → следующий по ходу → второй следующий.
+  //    preferPos — позиция, заранее выбранная ПО ДОРОГАМ (OSRM table, см. app.js);
+  //    без неё — ближайший по прямой. Кандидаты финиша: база → следующий → второй следующий.
   const manual = (state.junctions || []).filter(j => j.side === side && typeof j.idx === 'number');
   if (manual.length){
     const want = role === 'start' ? 'exit' : 'enter';
@@ -349,6 +350,7 @@ export function mkadAccessPoint(address, inside, role, shiftKm = 0.4){
         const d = haversine(address, [j.lon, j.lat]);
         if (d < bestD){ bestD = d; bestPos = i; }
       });
+      if (preferPos != null && preferPos >= 0 && preferPos < list.length) bestPos = preferPos;
       const len = list.length;
       const at = (i) => list[((i % len) + len) % len];
       let pick = at(bestPos);
