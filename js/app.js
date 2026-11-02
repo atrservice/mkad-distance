@@ -680,16 +680,33 @@ async function tableDistances(coords, sources, destinations, bearEntries){
   if (data.code !== 'Ok' || !Array.isArray(data.distances)) throw new Error('table: ' + data.code);
   return data.distances;
 }
+function probeAngle(p){
+  const C_LON = 37.62, C_LAT = 55.72;
+  const kx = Math.cos(C_LAT * Math.PI / 180);
+  return Math.atan2(p[1] - C_LAT, (p[0] - C_LON) * kx);
+}
+function probeAngleDiff(a, b){
+  let d = Math.abs(a - b) % (2 * Math.PI);
+  return d > Math.PI ? 2 * Math.PI - d : d;
+}
 async function probeBestJunction(address, inside, role){
   const st = getMKAD();
   const side = inside ? 'inner' : 'outer';
   const list = probeListFor(st, side, role);
   if (list.length < 2) return null;
-  const near = list
+  // Кандидаты: 4 ближайших ПО ПРЯМОЙ + 4 ближайших ПО СЕКТОРУ (угол от центра Москвы).
+  // У дальних адресов дорожно-оптимальный съезд лежит в секторе адреса,
+  // но по прямой может быть 5–8-м (Новопетровское → Новорижский).
+  const aAddr = probeAngle(address);
+  const byDist = list
     .map((j, i) => ({ i, d: haversine(address, [j.lon, j.lat]) }))
-    .sort((a, b) => a.d - b.d)
-    .slice(0, 8) // шире: у дальних адресов дорожно-оптимальный съезд может быть 5–8-м по прямой
-    .map(x => x.i);
+    .sort((a, b) => a.d - b.d);
+  const byAng = list
+    .map((j, i) => ({ i, d: probeAngleDiff(probeAngle([j.lon, j.lat]), aAddr) }))
+    .sort((a, b) => a.d - b.d);
+  const near = [];
+  byDist.slice(0, 4).forEach(x => { if (!near.includes(x.i)) near.push(x.i); });
+  byAng.slice(0, 4).forEach(x => { if (!near.includes(x.i)) near.push(x.i); });
   if (near.length < 2) return null;
   const key = role + '|' + address.map(c => c.toFixed(5)).join(',') + '|' + near.join(',');
   if (junctionProbeCache.has(key)) return junctionProbeCache.get(key);
@@ -724,10 +741,10 @@ async function probeBestJunction(address, inside, role){
     }
     if (bestK >= 0) best = near[bestK];
   } else {
-    // Фолбэк: дорожные маршруты до топ-3 кандидатов по прямой (параллельно)
+    // Фолбэк: реальные маршруты ДО ВСЕХ кандидатов (параллельно), берём короткий.
+    // Прямой слив без клеверницы выигрывает по дистанции сам (кейс «Кубинка»).
     mode = 'route-probe';
-    const top = near.slice(0, 3);
-    const res = await Promise.all(top.map(i => {
+    const res = await Promise.all(near.map(i => {
       const pt = [list[i].lon, list[i].lat];
       const b = mkadTravelBearing(pt, list[i].side);
       const pts = role === 'start' ? [pt, address] : [address, pt];
@@ -738,10 +755,10 @@ async function probeBestJunction(address, inside, role){
     res.forEach((r, k) => {
       if (r && isFinite(r.distanceM) && r.distanceM < bestD){ bestD = r.distanceM; bestK = k; }
     });
-    if (bestK >= 0) best = top[bestK];
+    if (bestK >= 0) best = near[bestK];
   }
   console.info('MKAD probe (' + role + '): ' + mode + ', кандидатов ' + near.length +
-    ', выбран #' + (best == null ? 'null' : String(near.indexOf(best))));
+    ', выбран ' + (best == null ? 'null' : list[best].lon + ',' + list[best].lat));
   if (junctionProbeCache.size > 60) junctionProbeCache.delete(junctionProbeCache.keys().next().value);
   junctionProbeCache.set(key, best);
   return best;
