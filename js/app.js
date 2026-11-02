@@ -674,7 +674,7 @@ async function probeBestJunction(address, inside, role){
   const near = list
     .map((j, i) => ({ i, d: haversine(address, [j.lon, j.lat]) }))
     .sort((a, b) => a.d - b.d)
-    .slice(0, 4)
+    .slice(0, 8) // шире: у дальних адресов дорожно-оптимальный съезд может быть 5–8-м по прямой
     .map(x => x.i);
   if (near.length < 2) return null;
   const key = role + '|' + address.map(c => c.toFixed(5)).join(',') + '|' + near.join(',');
@@ -697,6 +697,7 @@ async function probeBestJunction(address, inside, role){
       if (isFinite(d) && d < bestD){ bestD = d; bestK = k; }
     }
     if (bestK >= 0) best = near[bestK];
+    console.info('MKAD probe (' + role + '): кандидатов ' + near.length + ', дорожный выбор #' + bestK);
   } catch (e){
     console.warn('OSRM table недоступен — съезд по прямой:', e);
   }

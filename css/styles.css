@@ -244,7 +244,8 @@ body.mode-rent .col-side{ display:none; }
 .addr-list.is-dragging .addr-row:not(.is-dragging){ opacity:.45; filter:blur(1px); }
 .addr-row.is-dragging{
   position:relative; z-index:5; transform:scale(1.02);
-  background:#fff; border-radius:12px;
+  background:#fff; border-radius:14px;
+  padding:8px; margin:-8px; /* воздушный слой вокруг инпута; отрицательные поля не сдвигают список */
   box-shadow:0 0 0 1px var(--border-strong), 0 10px 24px rgba(16,24,40,.16);
 }
 .addr-row.is-dragging .addr-field input{ border-color:var(--accent); }
