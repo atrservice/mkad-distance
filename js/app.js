@@ -1,6 +1,6 @@
 import { searchAddress, reverseGeocode } from './geocoder.js';
 import { buildRoute } from './router.js';
-import { ensureMKAD, loadMkadStatic, mkadAccessPoint, isInsideMKAD, getMKAD, mkadRingForMap, closestMKADPoint } from './mkad.js';
+import { ensureMKAD, loadMkadStatic, mkadAccessPoint, isInsideMKAD, getMKAD, mkadRingForMap, closestMKADPoint, mkadTravelBearing } from './mkad.js';
 import { haversine } from './geo.js';
 import { VEHICLES, CHASSIS_LABELS, SHIFT_MODES, SHIFT_DEFAULT, SHIFT_TOOLTIP } from './vehicles.js';
 
@@ -686,8 +686,15 @@ async function probeBestJunction(address, inside, role){
     const coords = role === 'start' ? cand.concat([addr]).join(';') : [addr].concat(cand).join(';');
     const sources = role === 'start' ? near.map((_, k) => k).join(';') : '0';
     const destinations = role === 'start' ? String(near.length) : near.map((_, k) => k + 1).join(';');
+    // Подшипники с широким окном (±90°): защищают table от привязки кандидатов
+    // к встречному полотну МКАД — иначе дистанции приходят с петлями и выбор врёт
+    const bear = near.map(i => mkadTravelBearing([list[i].lon, list[i].lat], side));
+    const bearEntries = role === 'start'
+      ? bear.map(b => (b == null ? '' : b + ':180')).concat([''])
+      : [''].concat(bear.map(b => (b == null ? '' : b + ':180')));
     const res = await fetch('https://router.project-osrm.org/table/v1/driving/' + coords +
-      '?sources=' + sources + '&destinations=' + destinations);
+      '?sources=' + sources + '&destinations=' + destinations +
+      '&bearings=' + bearEntries.join(';'));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.code !== 'Ok' || !Array.isArray(data.distances)) throw new Error('table: ' + data.code);

@@ -189,6 +189,16 @@ function bearingBetween(a, b){
   return Math.round((Math.atan2(east, north) * 180 / Math.PI + 360) % 360);
 }
 
+/* Локальный подшипник направления движения стороны в точке:
+   внешняя едет против часовой, внутренняя — по часовой. */
+export function mkadTravelBearing(lonLat, side){
+  const cw = state.carriageways ? state.carriageways[side] : null;
+  if (!cw) return null;
+  const travel = side === 'outer' ? cw.ccwSign : -cw.ccwSign;
+  const { t } = nearestOnRing(cw, lonLat);
+  return bearingBetween(pointAt(cw, t), pointAt(cw, t + travel * 0.05));
+}
+
 /* ---------- Съезды из OSM (фон, необязательно) ---------- */
 export function ensureMKAD(){
   if (loading) return loading;
@@ -351,6 +361,7 @@ export function mkadAccessPoint(address, inside, role, shiftKm = 0.4, preferPos 
         if (d < bestD){ bestD = d; bestPos = i; }
       });
       if (preferPos != null && preferPos >= 0 && preferPos < list.length) bestPos = preferPos;
+      if (preferPos != null && preferPos >= 0 && preferPos < list.length) bestPos = preferPos;
       const len = list.length;
       const at = (i) => list[((i % len) + len) % len];
       let pick = at(bestPos);
@@ -358,7 +369,10 @@ export function mkadAccessPoint(address, inside, role, shiftKm = 0.4, preferPos 
         if (shiftKm === 0.5) pick = at(bestPos + 1);
         else if (shiftKm === 0.9) pick = at(bestPos + 2);
       }
-      return { point: [pick.lon, pick.lat], bearingDeg: null };
+      // Подшипник по направлению стороны в точке: без него OSRM иногда прилипает
+      // к встречному полотну и рисует петли-клеверницы (кейс «Кубинка»).
+      const bearingDeg = mkadTravelBearing([pick.lon, pick.lat], side);
+      return { point: [pick.lon, pick.lat], bearingDeg };
     }
   }
   // 2) Реальные узлы съездов (Overpass/override), только базовый сдвиг
