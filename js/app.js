@@ -677,7 +677,10 @@ async function tableDistances(coords, sources, destinations, bearEntries){
   const res = await fetch(url);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
-  if (data.code !== 'Ok' || !Array.isArray(data.distances)) throw new Error('table: ' + data.code);
+  if (data.code !== 'Ok' || !Array.isArray(data.distances)){
+    console.warn('OSRM table вернул code=' + data.code + ', но без distances:', JSON.stringify(data).slice(0, 200));
+    throw new Error('table: ' + data.code);
+  }
   return data.distances;
 }
 function probeAngle(p){

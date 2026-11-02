@@ -13,18 +13,20 @@ export async function buildRoute(points, bearings){
   const base = OSRM + '/route/v1/driving/' + coords +
     '?overview=full&geometries=geojson&steps=false&annotations=false&alternatives=false&generate_hints=false';
 
-  const hasBearings = Array.isArray(bearings) && bearings.some(b => b !== null && b !== undefined);
-  let url = base;
-  if (hasBearings){
-    url += '&bearings=' + bearings.map(b => {
-      if (b === null || b === undefined) return '';
-      if (typeof b === 'object' && b.bearing != null){
-        return b.bearing + ',' + (b.tolerance || 45);
-      }
-      // Числовой формат: допуск по умолчанию ±45° (вместо прежних ±90°)
-      return b + ',45';
-    }).join(';');
-  }
+const hasBearings = Array.isArray(bearings) && bearings.some(b => b !== null && b !== undefined);
+let url = base;
+if (hasBearings){
+  const bearStr = bearings.map(b => {
+    if (b === null || b === undefined) return '';
+    if (typeof b === 'object' && b.bearing != null){
+      return b.bearing + ',' + (b.tolerance || 90);
+    }
+    // Числовой формат: допуск по умолчанию ±90° (возврат к прежнему значению)
+    return b + ',90';
+  }).join(';');
+  url += '&bearings=' + bearStr;
+  console.info('buildRoute bearings:', bearStr);
+}
 
   try {
     return await request(url);
