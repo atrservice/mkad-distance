@@ -1,4 +1,4 @@
-const CACHE_STATIC = 'mkad-static-v38';
+const CACHE_STATIC = 'mkad-static-v39';
 const APP_SHELL = [
   './',
   './index.html',

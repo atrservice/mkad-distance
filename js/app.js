@@ -746,8 +746,6 @@ async function probeBestJunction(address, inside, role){
       const pt = [list[i].lon, list[i].lat];
       const b = mkadTravelBearing(pt, list[i].side);
       const pts = role === 'start' ? [pt, address] : [address, pt];
-      // Bearings передаём как ОБЪЕКТЫ {bearing, tolerance} — buildRoute должен
-      // использовать tolerance для формирования URL (±45° вместо ±180°).
       const bears = role === 'start'
         ? [{ bearing: b, tolerance: 45 }, null]
         : [null, { bearing: b, tolerance: 45 }];
@@ -757,6 +755,28 @@ async function probeBestJunction(address, inside, role){
     res.forEach((r, k) => {
       if (r && isFinite(r.distanceM) && r.distanceM < bestD){ bestD = r.distanceM; bestK = k; }
     });
+    // Для возврата: если лучший кандидат даёт петлю (дорожная > прямой + 2 км),
+    // используем следующего кандидата (слив по ходу движения, а не против).
+    if (bestK >= 0 && role === 'end'){
+      const bestPt = [list[near[bestK]].lon, list[near[bestK]].lat];
+      const directDist = haversine(address, bestPt);
+      if (bestD > directDist + 2000){
+        // Ищем следующего кандидата с более коротким маршрутом
+        for (let k = 0; k < near.length; k++){
+          if (k === bestK) continue;
+          const r = res[k];
+          if (r && isFinite(r.distanceM)){
+            const pt = [list[near[k]].lon, list[near[k]].lat];
+            const dirDist = haversine(address, pt);
+            if (r.distanceM < directDist + 1500 || r.distanceM < bestD - 1000){
+              bestK = k;
+              bestD = r.distanceM;
+              break;
+            }
+          }
+        }
+      }
+    }
     if (bestK >= 0) best = near[bestK];
   }
   console.info('MKAD probe (' + role + '): ' + mode + ', кандидатов ' + near.length +
