@@ -659,17 +659,31 @@ function outsideMkadDistance(pts){
   return total;
 }
 
-/* ---------- Выбор съезда ПО ДОРОГАМ, а не по прямой (OSRM table) ---------- */
-/* Для дальних адресов ближайший съезд по прямой может быть неверным по дороге
-   (Новопетровское → Новорижское шоссе, а не Пятницкое). Берём 4 ближайших по прямой
-   кандидата и одним запросом table/v1 получаем дорожные дистанции, выбираем минимум.
-   Ошибка table → фолбэк: ближайший по прямой (preferPos = null). */
+/* ---------- Выбор съезда ПО ДОРОГАМ, а не по прямой ---------- */
+/* Цепочка устойчивости: table+bearings → table без bearings → route-зонд топ-3 → прямая.
+   Режим работы пишется в console.info, ошибки — в console.warn: ничего не молчит. */
 const junctionProbeCache = new Map();
+function probeListFor(st, side, role){
+  const all = (st.junctions || []).filter(j => typeof j.idx === 'number');
+  if (role === 'start') return all.filter(j => j.side === side && j.type === 'exit');
+  // Возврат: въезды ОБЕИХ сторон — ближайший достижимый слив; иначе клеверницы
+  // на развязках, когда прямой съезд идёт на встречную сторону (кейс «Кубинка»).
+  return all.filter(j => j.type === 'enter');
+}
+async function tableDistances(coords, sources, destinations, bearEntries){
+  const url = 'https://router.project-osrm.org/table/v1/driving/' + coords +
+    '?sources=' + sources + '&destinations=' + destinations +
+    (bearEntries ? '&bearings=' + bearEntries.join(';') : '');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (data.code !== 'Ok' || !Array.isArray(data.distances)) throw new Error('table: ' + data.code);
+  return data.distances;
+}
 async function probeBestJunction(address, inside, role){
   const st = getMKAD();
   const side = inside ? 'inner' : 'outer';
-  const want = role === 'start' ? 'exit' : 'enter';
-  const list = (st.junctions || []).filter(j => j.side === side && j.type === want && typeof j.idx === 'number');
+  const list = probeListFor(st, side, role);
   if (list.length < 2) return null;
   const near = list
     .map((j, i) => ({ i, d: haversine(address, [j.lon, j.lat]) }))
@@ -680,34 +694,54 @@ async function probeBestJunction(address, inside, role){
   const key = role + '|' + address.map(c => c.toFixed(5)).join(',') + '|' + near.join(',');
   if (junctionProbeCache.has(key)) return junctionProbeCache.get(key);
   let best = null;
+  let mode = '';
+  const cand = near.map(i => list[i].lon + ',' + list[i].lat);
+  const addr = address[0] + ',' + address[1];
+  const coords = role === 'start' ? cand.concat([addr]).join(';') : [addr].concat(cand).join(';');
+  const sources = role === 'start' ? near.map((_, k) => k).join(';') : '0';
+  const destinations = role === 'start' ? String(near.length) : near.map((_, k) => k + 1).join(';');
+  const bear = near.map(i => mkadTravelBearing([list[i].lon, list[i].lat], list[i].side));
+  const bearEntries = role === 'start'
+    ? bear.map(b => (b == null ? '' : b + ':180')).concat([''])
+    : [''].concat(bear.map(b => (b == null ? '' : b + ':180')));
+  let distances = null;
   try {
-    const cand = near.map(i => list[i].lon + ',' + list[i].lat);
-    const addr = address[0] + ',' + address[1];
-    const coords = role === 'start' ? cand.concat([addr]).join(';') : [addr].concat(cand).join(';');
-    const sources = role === 'start' ? near.map((_, k) => k).join(';') : '0';
-    const destinations = role === 'start' ? String(near.length) : near.map((_, k) => k + 1).join(';');
-    // Подшипники с широким окном (±90°): защищают table от привязки кандидатов
-    // к встречному полотну МКАД — иначе дистанции приходят с петлями и выбор врёт
-    const bear = near.map(i => mkadTravelBearing([list[i].lon, list[i].lat], side));
-    const bearEntries = role === 'start'
-      ? bear.map(b => (b == null ? '' : b + ':180')).concat([''])
-      : [''].concat(bear.map(b => (b == null ? '' : b + ':180')));
-    const res = await fetch('https://router.project-osrm.org/table/v1/driving/' + coords +
-      '?sources=' + sources + '&destinations=' + destinations +
-      '&bearings=' + bearEntries.join(';'));
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (data.code !== 'Ok' || !Array.isArray(data.distances)) throw new Error('table: ' + data.code);
+    distances = await tableDistances(coords, sources, destinations, bearEntries);
+    mode = 'table+bearings';
+  } catch (e1){
+    try {
+      distances = await tableDistances(coords, sources, destinations, null);
+      mode = 'table';
+    } catch (e2){
+      console.warn('OSRM table недоступен, включаю route-зонд:', e2);
+    }
+  }
+  if (distances){
     let bestK = -1, bestD = Infinity;
     for (let k = 0; k < near.length; k++){
-      const d = role === 'start' ? data.distances[k][0] : data.distances[0][k];
+      const d = role === 'start' ? distances[k][0] : distances[0][k];
       if (isFinite(d) && d < bestD){ bestD = d; bestK = k; }
     }
     if (bestK >= 0) best = near[bestK];
-    console.info('MKAD probe (' + role + '): кандидатов ' + near.length + ', дорожный выбор #' + bestK);
-  } catch (e){
-    console.warn('OSRM table недоступен — съезд по прямой:', e);
+  } else {
+    // Фолбэк: дорожные маршруты до топ-3 кандидатов по прямой (параллельно)
+    mode = 'route-probe';
+    const top = near.slice(0, 3);
+    const res = await Promise.all(top.map(i => {
+      const pt = [list[i].lon, list[i].lat];
+      const b = mkadTravelBearing(pt, list[i].side);
+      const pts = role === 'start' ? [pt, address] : [address, pt];
+      const bears = role === 'start' ? [b, null] : [null, b];
+      return buildRoute(pts, bears).catch(() => null);
+    }));
+    let bestK = -1, bestD = Infinity;
+    res.forEach((r, k) => {
+      if (r && isFinite(r.distanceM) && r.distanceM < bestD){ bestD = r.distanceM; bestK = k; }
+    });
+    if (bestK >= 0) best = top[bestK];
   }
+  console.info('MKAD probe (' + role + '): ' + mode + ', кандидатов ' + near.length +
+    ', выбран #' + (best == null ? 'null' : String(near.indexOf(best))));
   if (junctionProbeCache.size > 60) junctionProbeCache.delete(junctionProbeCache.keys().next().value);
   junctionProbeCache.set(key, best);
   return best;

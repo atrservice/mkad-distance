@@ -352,8 +352,10 @@ export function mkadAccessPoint(address, inside, role, shiftKm = 0.4, preferPos 
   //    без неё — ближайший по прямой. Кандидаты финиша: база → следующий → второй следующий.
   const manual = (state.junctions || []).filter(j => j.side === side && typeof j.idx === 'number');
   if (manual.length){
-    const want = role === 'start' ? 'exit' : 'enter';
-    const list = manual.filter(j => j.type === want);
+    // Старт — съезды своей стороны; возврат — въезды ОБЕИХ сторон (ближайший достижимый слив)
+    const list = role === 'start'
+      ? manual.filter(j => j.type === 'exit' && j.side === side)
+      : manual.filter(j => j.type === 'enter');
     if (list.length){
       let bestPos = 0, bestD = Infinity;
       list.forEach((j, i) => {
@@ -371,7 +373,7 @@ export function mkadAccessPoint(address, inside, role, shiftKm = 0.4, preferPos 
       }
       // Подшипник по направлению стороны в точке: без него OSRM иногда прилипает
       // к встречному полотну и рисует петли-клеверницы (кейс «Кубинка»).
-      const bearingDeg = mkadTravelBearing([pick.lon, pick.lat], side);
+      const bearingDeg = mkadTravelBearing([pick.lon, pick.lat], pick.side);
       return { point: [pick.lon, pick.lat], bearingDeg };
     }
   }
