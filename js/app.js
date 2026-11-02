@@ -465,7 +465,7 @@ async function recalc(){
       const pts = [], bearings = [], labels = [], mkadPts = [];
       if (needStart){
         const acc = mkadAccessPoint(first, firstInside, 'start', 0.4, startPos);
-        pts.push(acc.point); bearings.push(acc.bearingDeg);
+        pts.push(acc.point); bearings.push(acc.bearing);
         labels.push('МКАД'); mkadPts.push(acc.point);
       }
       used.forEach((r, i) => {
@@ -474,7 +474,7 @@ async function recalc(){
       });
       if (needReturn){
         const acc = mkadAccessPoint(last, lastInside, 'end', endShiftKm, endPos);
-        pts.push(acc.point); bearings.push(acc.bearingDeg);
+        pts.push(acc.point); bearings.push(acc.bearing);
         labels.push('МКАД');
         if (!mkadPts.some(p => p[0] === acc.point[0] && p[1] === acc.point[1])){
           mkadPts.push(acc.point);
@@ -717,22 +717,17 @@ async function probeBestJunction(address, inside, role){
   const coords = role === 'start' ? cand.concat([addr]).join(';') : [addr].concat(cand).join(';');
   const sources = role === 'start' ? near.map((_, k) => k).join(';') : '0';
   const destinations = role === 'start' ? String(near.length) : near.map((_, k) => k + 1).join(';');
-  const bear = near.map(i => mkadTravelBearing([list[i].lon, list[i].lat], list[i].side));
-  const bearEntries = role === 'start'
-    ? bear.map(b => (b == null ? '' : b + ':180')).concat([''])
-    : [''].concat(bear.map(b => (b == null ? '' : b + ':180')));
+  // Bearings НЕ передаём в table: trailing ';' ломает URL, а для сравнения дистанций
+  // направление не критично. Bearings используются только в route-зонде и buildRoute.
+  const bearEntries = null;
   let distances = null;
   try {
-    distances = await tableDistances(coords, sources, destinations, bearEntries);
-    mode = 'table+bearings';
-  } catch (e1){
-    try {
-      distances = await tableDistances(coords, sources, destinations, null);
-      mode = 'table';
+    distances = await tableDistances(coords, sources, destinations, null);
+    mode = 'table';
     } catch (e2){
       console.warn('OSRM table недоступен, включаю route-зонд:', e2);
     }
-  }
+  
   if (distances){
     let bestK = -1, bestD = Infinity;
     for (let k = 0; k < near.length; k++){
@@ -748,7 +743,11 @@ async function probeBestJunction(address, inside, role){
       const pt = [list[i].lon, list[i].lat];
       const b = mkadTravelBearing(pt, list[i].side);
       const pts = role === 'start' ? [pt, address] : [address, pt];
-      const bears = role === 'start' ? [b, null] : [null, b];
+      // Bearings передаём как ОБЪЕКТЫ {bearing, tolerance} — buildRoute должен
+      // использовать tolerance для формирования URL (±45° вместо ±180°).
+      const bears = role === 'start'
+        ? [{ bearing: b, tolerance: 45 }, null]
+        : [null, { bearing: b, tolerance: 45 }];
       return buildRoute(pts, bears).catch(() => null);
     }));
     let bestK = -1, bestD = Infinity;

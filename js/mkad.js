@@ -374,7 +374,12 @@ export function mkadAccessPoint(address, inside, role, shiftKm = 0.4, preferPos 
       // Подшипник по направлению стороны в точке: без него OSRM иногда прилипает
       // к встречному полотну и рисует петли-клеверницы (кейс «Кубинка»).
       const bearingDeg = mkadTravelBearing([pick.lon, pick.lat], pick.side);
-      return { point: [pick.lon, pick.lat], bearingDeg };
+      // Передаём bearing как объект с допуском ±45° — buildRoute использует это
+      // для правильной привязки к полотну (без петель-клеверниц).
+      return {
+        point: [pick.lon, pick.lat],
+        bearing: bearingDeg != null ? { bearing: bearingDeg, tolerance: 45 } : null
+      };
     }
   }
   // 2) Реальные узлы съездов (Overpass/override), только базовый сдвиг

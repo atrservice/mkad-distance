@@ -1,7 +1,10 @@
 const OSRM = 'https://router.project-osrm.org'; // демо-сервер; для продакшена заменить
 
 // points: массив [lon, lat].
-// bearings: массив той же длины: null (без ограничения) или градусы направления движения в точке.
+// bearings: массив той же длины:
+//   - null или undefined (без ограничения),
+//   - число (градусы направления движения, допуск ±45°),
+//   - объект {bearing: число, tolerance: число} (явное указание допуска в градусах).
 export async function buildRoute(points, bearings){
   if (!Array.isArray(points) || points.length < 2){
     throw new Error('Нужно минимум две точки маршрута');
@@ -13,7 +16,14 @@ export async function buildRoute(points, bearings){
   const hasBearings = Array.isArray(bearings) && bearings.some(b => b !== null && b !== undefined);
   let url = base;
   if (hasBearings){
-    url += '&bearings=' + bearings.map(b => (b === null || b === undefined) ? '' : (b + ',90')).join(';');
+    url += '&bearings=' + bearings.map(b => {
+      if (b === null || b === undefined) return '';
+      if (typeof b === 'object' && b.bearing != null){
+        return b.bearing + ',' + (b.tolerance || 45);
+      }
+      // Числовой формат: допуск по умолчанию ±45° (вместо прежних ±90°)
+      return b + ',45';
+    }).join(';');
   }
 
   try {
