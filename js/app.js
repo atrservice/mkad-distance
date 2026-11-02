@@ -87,6 +87,8 @@ const kmFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximum
 const rubFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const moneyFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtKm = (meters) => kmFmt.format(meters / 1000) + ' км';
+// Общий и оплачиваемый пробег в показах — ЦЕЛЫЕ км (ноги участков — с десятыми)
+const fmtKmWhole = (meters) => Math.round(meters / 1000) + ' км';
 const fmtRub = (v) => rubFmt.format(Math.round(v)) + ' ₽';
 function fmtDur(seconds){
   const totalMin = Math.max(1, Math.round(seconds / 60));
@@ -142,13 +144,17 @@ function createRow(){
   suggest.hidden = true;
   const meta = document.createElement('div');
   meta.className = 'addr-meta';
+  const drag = document.createElement('button');
+  drag.type = 'button';
+  drag.className = 'addr-drag';
+  drag.setAttribute('aria-label', 'Переместить адрес');
   const del = document.createElement('button');
   del.type = 'button';
   del.className = 'addr-del';
   del.setAttribute('aria-label', 'Удалить адрес');
   del.textContent = '×';
   field.append(input, suggest, meta);
-  wrap.append(num, field, del);
+  wrap.append(num, field, drag, del);
   addrList.append(wrap);
   row.wrap = wrap; row.num = num; row.input = input;
   row.suggest = suggest; row.meta = meta;
@@ -193,6 +199,59 @@ function updateGhostStates(){
     const ghost = (i === rows.length - 1) && !r.latlon && r.input.value.trim() === '';
     r.wrap.classList.toggle('is-ghost', ghost);
   });
+}
+
+/* ---------- Перетаскивание адресов (смена порядка) ---------- */
+let dragRow = null;
+addrList.addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest('.addr-drag');
+  if (!handle) return;
+  const wrap = handle.closest('.addr-row');
+  if (!wrap || wrap.classList.contains('is-ghost')) return; // пустую ghost-строку не таскаем
+  e.preventDefault();
+  dragRow = wrap;
+  wrap.classList.add('is-dragging');
+  handle.setPointerCapture(e.pointerId);
+});
+addrList.addEventListener('pointermove', (e) => {
+  if (!dragRow) return;
+  const after = getDragAfterElement(e.clientY);
+  const ghostEl = addrList.querySelector('.addr-row.is-ghost');
+  if (after == null){
+    // ниже всех: ставим перед ghost-строкой (ghost всегда последняя)
+    if (ghostEl && ghostEl !== dragRow) addrList.insertBefore(dragRow, ghostEl);
+    else addrList.append(dragRow);
+  } else if (after !== dragRow){
+    addrList.insertBefore(dragRow, after);
+  }
+});
+addrList.addEventListener('pointerup', finishDrag);
+addrList.addEventListener('pointercancel', finishDrag);
+function finishDrag(){
+  if (!dragRow) return;
+  dragRow.classList.remove('is-dragging');
+  dragRow = null;
+  syncRowsFromDom();
+}
+/* Строка, ПЕРЕД которой нужно вставить перетаскиваемую: ближайшая сверху от курсора */
+function getDragAfterElement(y){
+  const els = [...addrList.querySelectorAll('.addr-row:not(.is-dragging)')];
+  let closest = null;
+  let closestOffset = -Infinity;
+  els.forEach(el => {
+    const box = el.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closestOffset){ closestOffset = offset; closest = el; }
+  });
+  return closest;
+}
+/* После броска: порядок массива rows = порядку DOM, затем перенумерация и пересчёт */
+function syncRowsFromDom(){
+  const order = [...addrList.children].filter(el => el.classList.contains('addr-row'));
+  rows.sort((a, b) => order.indexOf(a.wrap) - order.indexOf(b.wrap));
+  renumber();
+  updateGhostStates();
+  scheduleRecalc();
 }
 
 /* ---------- Подсказки адресов и координат ---------- */
@@ -430,7 +489,7 @@ async function recalc(){
     if (planA.pts.length < 2){
       if (seq !== calcSeq) return;
       plateCard.dataset.state = 'ok';
-      plateDistance.textContent = fmtKm(0);
+      plateDistance.textContent = '0';
       plateDuration.textContent = '';
       plateStatus.textContent = 'Без выезда и возврата к МКАД — 0 км';
       legsCard.hidden = true;
@@ -463,10 +522,11 @@ async function recalc(){
     }
     if (seq !== calcSeq) return;
     plateCard.dataset.state = 'ok';
-    plateDistance.textContent = fmtKm(route.distanceM);
+    // В #plateDistance — ТОЛЬКО число (единица «км» — отдельный span), целые км
+    plateDistance.textContent = String(Math.round(route.distanceM / 1000));
     plateDuration.textContent = '≈ ' + fmtDur(route.durationS);
-    const startTxt = needStart ? 'учтён выезд к МКАД' : 'старт с адреса 1 (внутри МКАД)';
-    const endTxt = needReturn ? 'учтён возврат к МКАД'
+    const startTxt = needStart ? 'учтён выезд с МКАД' : 'старт с адреса 1 (внутри МКАД)';
+    const endTxt = needReturn ? 'учтён возврат на МКАД'
       : (lastInside ? 'возврат не рассчитывается (последний адрес внутри МКАД)'
                     : 'возврат выключен переключателем');
     plateStatus.textContent = 'Адресов: ' + used.length + ' · ' + startTxt + ', ' + endTxt;
@@ -611,11 +671,11 @@ function updatePlateMiles(){
     plateCaption.hidden = false;
     plateTotalLine.hidden = false;
     plateDistance.textContent = String(paidKmEffective(v));
-    plateTotalLine.textContent = 'Общий пробег: ' + fmtKm(lastDistanceM);
+    plateTotalLine.textContent = 'Общий пробег: ' + fmtKmWhole(lastDistanceM);
   } else {
     plateCaption.hidden = true;
     plateTotalLine.hidden = true;
-    plateDistance.textContent = lastDistanceM == null ? '—' : fmtKm(lastDistanceM);
+    plateDistance.textContent = lastDistanceM == null ? '—' : String(Math.round(lastDistanceM / 1000));
   }
 }
 
@@ -699,7 +759,7 @@ function getBasePrices(v, option, chassis){
   return byOption[chassis] || byOption.highway || null;
 }
 /* Заполняет поля цен базовыми значениями; при включённом «Цена с НДС» —
-   база × (1 + ставка из поля «Расчет с НДС» / 100). Переключение крыжика, правка ставки,
+   база × (1 + ставка из поля «С НДС» / 100). Переключение крыжика, правка ставки,
    смена варианта/шасси сбрасывают ручные правки. */
 function fillBasePrices(v, option, chassis){
   const p = getBasePrices(v, option, chassis);
@@ -746,7 +806,7 @@ vatToggle.addEventListener('change', () => {
     recalcRentTotal();
   }
 });
-// Правка ставки «Расчет с НДС»: при ВКЛ-крыжике переполняем поля от базы с новой ставкой
+// Правка ставки «С НДС»: при ВКЛ-крыжике переполняем поля от базы с новой ставкой
 vatRowPct.addEventListener('input', () => {
   const v = VEHICLES.find(x => x.id === selectedVehicleId);
   if (vatToggle.checked && v && rentOption){
@@ -796,8 +856,8 @@ function paidDistanceFor(v){
 }
 /* ФОРМУЛА: S = смена(7+1) + (доп. часы режима + доп. часы типа) × час
            + Оплачиваемый пробег ПОСЛЕ франшизы (целые км) × цена/км — из текущих полей.
-   Ставки из полей UI: q = «Расчет с НДС %» (она же — ставка крыжика «Цена с НДС»),
-   p = «Расчет без НДС %». Строки БЕЗ двойного НДС:
+   Ставки из полей UI: q = «С НДС %» (она же — ставка крыжика «Цена с НДС»), p = «Без НДС %».
+   Строки БЕЗ двойного НДС:
    - крыжик ВЫКЛ: наличный = S; с НДС = наличный × (1+q/100); без НДС = наличный × (1+p/100);
    - крыжик ВКЛ: наличный = S / (1+q/100); с НДС = наличный × (1+q/100) (= S);
      без НДС = наличный × (1+p/100). */
@@ -812,7 +872,7 @@ function recalcRentTotal(){
   const rawPaidKm = paidKmRaw(v);
   const paidKm = paidKmEffective(v);
   const total = shift + (extraMode + extraType) * hourRate + paidKm * kmRate;
-  milesTotal.textContent = lastDistanceM == null ? 'не рассчитан' : fmtKm(lastDistanceM);
+  milesTotal.textContent = lastDistanceM == null ? 'не рассчитан' : fmtKmWhole(lastDistanceM);
   milesPaid.textContent = lastDistanceM == null ? '—' : paidKm + ' км';
   const q = pctVal(vatRowPct, 22);
   const p = pctVal(noVatPct, 8);
@@ -857,7 +917,7 @@ function updateVehicleSummary(){
 
 /* ---------- Секции и режимы (аккордеон «Маршрут» / «Выбор техники») ---------- */
 function updateRouteSummary(){
-  routeKm.textContent = lastDistanceM == null ? '— км' : fmtKm(lastDistanceM);
+  routeKm.textContent = lastDistanceM == null ? '— км' : fmtKmWhole(lastDistanceM);
 }
 function setMode(mode){
   if (mode !== 'route' && mode !== 'rent') return;
