@@ -22,6 +22,7 @@ const helpBtn = $('#helpBtn');
 const helpDialog = $('#helpDialog');
 const helpClose = $('#helpClose');
 const returnToggle = $('#returnToggle');
+const tollToggle = $('#tollToggle');
 const netWarn = document.getElementById('netWarn');
 const netWarnClose = document.getElementById('netWarnClose');
 // Стоимость аренды и секции
@@ -108,6 +109,21 @@ function toast(msg){
 function pctVal(el, fallback){
   const n = parseFloat(el.value);
   return isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/* Транслитерация: английская раскладка → кириллица (для поиска адресов) */
+function transliterateToCyrillic(str){
+  const map = {
+    'q':'й','w':'ц','e':'у','r':'к','t':'е','y':'н','u':'г','i':'ш','o':'щ','p':'з',
+    '[':'х',']':'ъ','a':'ф','s':'ы','d':'в','f':'а','g':'п','h':'р','j':'о','k':'л',
+    'l':'д',';':'ж','\'':'э','z':'я','x':'ч','c':'с','v':'м','b':'и','n':'т','m':'ь',
+    ',':'б','.':'ю','/':'.',
+    'Q':'Й','W':'Ц','E':'У','R':'К','T':'Е','Y':'Н','U':'Г','I':'Ш','O':'Щ','P':'З',
+    '{':'Х','}':'Ъ','A':'Ф','S':'Ы','D':'В','F':'А','G':'П','H':'Р','J':'О','K':'Л',
+    'L':'Д',':':'Ж','"':'Э','Z':'Я','X':'Ч','C':'С','V':'М','B':'И','N':'Т','M':'Ь',
+    '<':'Б','>':'Ю','?':','
+  };
+  return str.split('').map(c => map[c] || c).join('');
 }
 
 /* Предупреждение о недоступности сервисов (типично при включённом VPN) */
@@ -272,7 +288,11 @@ function parseCoords(str){
   return null;
 }
 async function fetchSuggestions(row){
-  const q = row.input.value.trim();
+  let q = row.input.value.trim();
+  // Если ввод на английской раскладке — транслитерируем в кириллицу для поиска
+  if (/[a-zA-Z]/.test(q) && !/[а-яА-ЯёЁ]/.test(q)){
+    q = transliterateToCyrillic(q);
+  }
   row.seq++;
   const my = row.seq;
   if (row.ctrl) row.ctrl.abort();
@@ -290,7 +310,8 @@ async function fetchSuggestions(row){
       const item = makeSuggestItem(name, 'Точка с координатами ' + coords.lat.toFixed(6) + ', ' + coords.lon.toFixed(6));
       item.addEventListener('pointerdown', (e) => {
         e.preventDefault();
-        confirmRow(row, [coords.lon, coords.lat], row.input.value.trim());
+        // В поле остаётся адрес из дропдауна (reverse-геокодинг), а не введённые координаты
+        confirmRow(row, [coords.lon, coords.lat], name);
       });
       row.suggest.append(item);
       row.suggest.hidden = false;
@@ -306,7 +327,8 @@ async function fetchSuggestions(row){
         const item = makeSuggestItem(r.title, r.sub || '');
         item.addEventListener('pointerdown', (e) => {
           e.preventDefault();
-          confirmRow(row, [r.lon, r.lat], r.shortName);
+          // В поле остаётся первая строка дропдауна (title), а не то, что вводил пользователь
+          confirmRow(row, [r.lon, r.lat], r.title);
         });
         row.suggest.append(item);
       });
@@ -323,6 +345,7 @@ async function fetchSuggestions(row){
 function confirmRow(row, lonlat, label){
   if (row.ctrl) row.ctrl.abort();
   row.latlon = lonlat;
+  // Сохраняем оригинальный ввод пользователя (не транслитерированный)
   row.input.value = label;
   hideSuggest(row);
   updateRowInside(row);
@@ -742,15 +765,25 @@ async function probeBestJunction(address, inside, role){
     // Фолбэк: реальные маршруты ДО ВСЕХ кандидатов (параллельно), берём короткий.
     // Прямой слив без клеверницы выигрывает по дистанции сам (кейс «Кубинка»).
     mode = 'route-probe';
-    const res = await Promise.all(near.map(i => {
+    // Последовательное выполнение с задержкой 200ms — защита от HTTP 429
+    // на публичных OSRM-серверах (routing.openstreetmap.de имеет строгий rate-limit)
+    const res = [];
+    for (let k = 0; k < near.length; k++){
+      if (k > 0) await new Promise(r => setTimeout(r, 200));
+      const i = near[k];
       const pt = [list[i].lon, list[i].lat];
       const b = mkadTravelBearing(pt, list[i].side);
       const pts = role === 'start' ? [pt, address] : [address, pt];
       const bears = role === 'start'
         ? [{ bearing: b, tolerance: 45 }, null]
         : [null, { bearing: b, tolerance: 45 }];
-      return buildRoute(pts, bears).catch(() => null);
-    }));
+      try {
+        res.push(await buildRoute(pts, bears));
+      } catch (e){
+        console.warn('route-probe кандидат #' + k + ' ошибка:', e.message);
+        res.push(null);
+      }
+    }
     let bestK = -1, bestD = Infinity;
     res.forEach((r, k) => {
       if (r && isFinite(r.distanceM) && r.distanceM < bestD){ bestD = r.distanceM; bestK = k; }
@@ -1192,6 +1225,14 @@ updatePlateMiles();
 drawMkadRing();
 onMkadReady();
 returnToggle.addEventListener('change', scheduleRecalc);
+// Заглушка: функционал «Платные дороги» в разработке (бэклог §17)
+tollToggle.addEventListener('change', (e) => {
+  e.preventDefault();           // отменяем переключение
+  tollToggle.checked = false;   // возвращаем в исходное состояние
+  helpDialog.querySelector('h3').textContent = 'В разработке';
+  helpDialog.querySelector('p').textContent = 'Функционал «Платные дороги» находится в разработке. Этот переключатель будет исключать платные участки (ЦКАД, М-4, М-11) из маршрута.';
+  helpDialog.showModal();
+});
 loadMkadStatic().then(() => {
   onMkadReady();
   scheduleRecalc();

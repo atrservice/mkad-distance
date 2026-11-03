@@ -76,6 +76,7 @@
 <div class="section-body">
 <div class="addr-list" id="addrList"></div>
 <div class="toggle-row">
+<span class="toggle-group">
 <label class="toggle">
 <input type="checkbox" id="returnToggle" checked>
 <span class="toggle-box" aria-hidden="true"></span>
@@ -84,6 +85,18 @@
 <span class="help-wrap">
 <button type="button" class="help-mark" id="helpMarkReturn" aria-label="О переключателе «Возврат на МКАД»">?</button>
 <span class="help-tip" role="tooltip">Переключатель «Возврат на МКАД» (включён по умолчанию) добавляет обратный пробег от последнего адреса до МКАД, если этот адрес снаружи МКАД. Если последний (или единственный) адрес внутри МКАД — переключатель блокируется и игнорируется: выезд и возврат не рассчитываются (зона 0 км).</span>
+</span>
+</span>
+<span class="toggle-group">
+<label class="toggle">
+<input type="checkbox" id="tollToggle">
+<span class="toggle-box" aria-hidden="true"></span>
+<span class="toggle-text">Платные дороги</span>
+</label>
+<span class="help-wrap">
+<button type="button" class="help-mark" id="helpMarkToll" aria-label="О переключателе «Платные дороги»">?</button>
+<span class="help-tip" role="tooltip">По умолчанию ВЫКЛ («Избегать») — маршрут строится без платных участков (ЦКАД, М-4 «Дон», М-11 «Нева» и др.). ВКЛ («Разрешено») — платные дороги допускаются. Для адресов внутри Москвы и ближнего Подмосковья разница обычно отсутствует; влияет на дальние маршруты. Функционал в разработке.</span>
+</span>
 </span>
 </div>
 <p class="toggle-hint" id="returnToggleHint"></p>
