@@ -67,7 +67,7 @@
 <h2 class="card-title section-title">Маршрут
 <span class="help-wrap">
 <button type="button" class="help-mark" id="helpMarkRoute" aria-label="Как считается пробег">?</button>
-<span class="help-tip" role="tooltip">Выбирайте адрес из подсказок или вставьте координаты вида <b>55.756, 37.617</b>. Пробег пересчитывается автоматически. Если первый адрес внутри МКАД — пробег начинается с него (0 км), для адресов снаружи МКАД добавляется выезд к ближайшему съезду.</span>
+<span class="help-tip" role="tooltip">Выбирайте адрес из подсказок или вставьте координаты вида <b>55.756, 37.617</b>. Пробег пересчитывается автоматически. Если первый адрес внутри МКАД — пробег начинается с него (0 км), для адресов снаружи МКАД добавляется выезд к ближайшему съезду. Ранее введённые адреса этой сессии предлагаются в списке первыми (память 30 минут).</span>
 </span>
 </h2>
 <span class="section-km" id="routeKm">— км</span>
@@ -134,6 +134,14 @@
 <label class="seg-opt"><input type="radio" name="chassis" value="offroad"><span>Вездеход</span></label>
 </div>
 </div>
+<!-- Способ расчета: только для техники из REJSY_SUPPORTED (vehicles.js) -->
+<div class="calc-mode-wrap" id="calcModeWrap" hidden>
+<span class="spec-label">Способ расчета</span>
+<div class="seg seg-calcmode" id="calcModeSeg">
+<label class="seg-opt"><input type="radio" name="calcmode" value="standard" checked><span>Стандарт</span></label>
+<label class="seg-opt"><input type="radio" name="calcmode" value="rejsy"><span>Рейсы</span></label>
+</div>
+</div>
 <!-- Характеристика + Смена: скрыты, пока не выбран тип техники -->
 <div class="spec-duo" id="specWrap" hidden>
 <div class="spec-col">
@@ -146,7 +154,7 @@
 </span>
 <select id="specSelect" class="spec-control"></select>
 </div>
-<div class="spec-col">
+<div class="spec-col" id="shiftCol">
 <span class="spec-label-row">
 <label class="spec-label" for="shiftSelect">Смена</label>
 <span class="help-wrap">
@@ -163,36 +171,45 @@
 <span class="price-miles-paid">Оплачиваемый пробег: <b id="milesPaid">—</b></span>
 <span class="price-miles-total">Общий пробег: <b id="milesTotal">—</b></span>
 </div>
-<!-- Ряд тумблеров: как «Возврат на МКАД», под разделителем плашки пробегов.
-     Ставка НДС редактируется ниже, в строке «Расчет с НДС … %» -->
+<!-- Ряд тумблеров: как «Возврат на МКАД», под разделителем плашки пробегов -->
 <div class="price-toggles">
 <label class="toggle">
 <input type="checkbox" id="vatToggle">
 <span class="toggle-box" aria-hidden="true"></span>
 <span class="toggle-text">Цена с НДС</span>
 </label>
+<span class="toggle-group">
 <label class="toggle">
 <input type="checkbox" id="inclToggle" checked>
 <span class="toggle-box" aria-hidden="true"></span>
 <span class="toggle-text">Включено в смену</span>
 </label>
+<span class="help-wrap">
+<button type="button" class="help-mark" id="helpMarkIncl" aria-label="О переключателе «Включено в смену»">?</button>
+<span class="help-tip" role="tooltip" id="inclTip"></span>
+</span>
+</span>
 <input id="inclKm" class="km-input" type="number" inputmode="decimal" min="0" step="any" value="10" aria-label="Пробег, включённый в смену, километров">
 <span class="unit-sign">км</span>
 </div>
 <div class="price-grid">
 <div class="price-field">
 <span class="price-field-head">
-<label for="priceShift">За смену 7+1, ₽</label>
+<label for="priceShift" id="priceShiftLabel">За смену 7+1, ₽</label>
 <span class="help-wrap">
 <button type="button" class="help-mark" id="helpMarkShiftPrice" aria-label="О базовой цене за смену">?</button>
-<span class="help-tip" role="tooltip">Базовая цена смены — за режим 7+1: 7 часов работы + 1 час подачи техники на объект (всего 8 оплачиваемых часов). «За час» по умолчанию = смена ÷ 8. Выбор других режимов «Смена» не меняет значения в полях — к сумме добавляются дополнительные часы по ставке «За час»: доп. часы = оплачиваемые часы режима − 8. Пример при смене 16 000 ₽ (час 2 000 ₽): режим «12» → 16 000 + (12 − 8) × 2 000 = 24 000 ₽; режим «12+1» → 16 000 + (13 − 8) × 2 000 = 26 000 ₽. Тумблер «Цена с НДС» умножает базовые поля на (1 + ставка из строки «Расчет с НДС» ÷ 100).</span>
+<span class="help-tip" role="tooltip">Базовая цена смены — за режим 7+1: 7 часов работы + 1 час подачи техники на объект (всего 8 оплачиваемых часов). «За час» по умолчанию = смена ÷ 8. Выбор других режимов «Смена» не меняет значения в полях — к сумме добавляются дополнительные часы по ставке «За час»: доп. часы = оплачиваемые часы режима − 8. Пример при смене 16 000 ₽ (час 2 000 ₽): режим «12» → 16 000 + (12 − 8) × 2 000 = 24 000 ₽; режим «12+1» → 16 000 + (13 − 8) × 2 000 = 26 000 ₽. В режиме «Рейсы» это поле означает «За рейс, ₽» и берёт ту же базовую цену. Тумблер «Цена с НДС» умножает базовые поля на (1 + ставка из строки «С НДС» ÷ 100).</span>
 </span>
 </span>
 <input id="priceShift" type="number" inputmode="decimal" min="0" step="any">
 </div>
-<div class="price-field">
+<div class="price-field" id="hourField">
 <label for="priceHour">За час, ₽</label>
 <input id="priceHour" type="number" inputmode="decimal" min="0" step="any">
+</div>
+<div class="price-field" id="rejsyField" hidden>
+<label for="rejsyCount">Кол-во рейсов</label>
+<input id="rejsyCount" class="rejsy-input" type="number" inputmode="numeric" min="1" step="1" value="1">
 </div>
 <div class="price-field">
 <label for="priceKm">За 1 км пробега, ₽</label>
@@ -213,7 +230,7 @@
 <button type="button" class="price-choose" data-kind="vat">Выбрать</button>
 </div>
 <div class="price-offer-row">
-<span class="price-offer-name">Без НДС <input id="noVatPct" class="pct-input" type="number" inputmode="decimal" min="0" step="any" value="8" aria-label="Наценка расчета без НДС, процентов">%</span>
+<span class="price-offer-name">Без НДС <input id="noVatPct" class="pct-input" type="number" inputmode="decimal" min="0" step="any" value="8" aria-label="Наценка без НДС, процентов">%</span>
 <b class="price-offer-value" id="priceNoVat">—</b>
 <button type="button" class="price-choose" data-kind="novat">Выбрать</button>
 </div>
@@ -242,6 +259,7 @@
 <button id="helpBtn" class="linklike" type="button">Как установить приложение на телефон</button>
 </footer>
 </div>
+<div class="map-backdrop" id="mapBackdrop" hidden></div>
 <dialog id="helpDialog" aria-label="Установка приложения">
 <h3>Как добавить на главный экран</h3>
 <p><b>Android (Chrome):</b> при открытии сайта появится кнопка «Установить приложение» либо: меню ⋮ → «Добавить на главный экран».</p>
@@ -249,7 +267,6 @@
 <p>Приложение откроется как отдельное мини-приложение: полноэкранно, со своей иконкой.</p>
 <button id="helpClose" class="btn btn-primary" type="button">Понятно</button>
 </dialog>
-<div class="map-backdrop" id="mapBackdrop" hidden></div>
 <div id="toast" role="status"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module" src="js/app.js"></script>

@@ -16,6 +16,8 @@
   --shadow:0 1px 2px rgba(16,24,40,.05), 0 4px 16px rgba(16,24,40,.04);
 }
 *{ box-sizing:border-box; }
+/* Атрибут hidden должен побеждать display компонентов (flex/grid-обёртки) */
+[hidden]{ display:none !important; }
 html,body{ margin:0; padding:0; }
 body{
   background:var(--bg); color:var(--ink);
@@ -69,14 +71,12 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .help-wrap.open .help-tip{
   opacity:1; visibility:visible; transform:translateY(0);
 }
-/* Hover-показ только для устройств с курсором, чтобы на тач-экранах не было «липкого» тултипа */
 @media (hover:hover){
   .help-wrap:hover .help-tip{
     opacity:1; visibility:visible; transform:translateY(0);
   }
 }
 @media (max-width:640px){
-  /* На мобильных тултип — плашка поверх экрана, не выходит за границы */
   .help-tip{
     position:fixed; top:12px; left:12px; right:12px;
     width:auto; max-width:none; z-index:2000;
@@ -97,7 +97,8 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   font:inherit; font-size:15px; font-weight:600; color:var(--ink-2); cursor:pointer;
   transition:background .15s, color .15s, box-shadow .15s;
 }
-.seg-btn.is-active{ background:#fff; color:var(--accent); box-shadow:0 1px 3px rgba(16,24,40,.12); }
+/* КОНТРАСТ: активный сегмент — синий фон, белый текст */
+.seg-btn.is-active{ background:var(--accent); color:#fff; box-shadow:0 1px 3px rgba(16,24,40,.2); }
 .seg-btn.is-locked{ color:var(--muted); }
 .seg-opt{ position:relative; }
 .seg-opt input{ position:absolute; opacity:0; pointer-events:none; }
@@ -106,14 +107,13 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   font-size:15px; font-weight:600; color:var(--ink-2); cursor:pointer;
   transition:background .15s, color .15s, box-shadow .15s;
 }
-.seg-opt input:checked + span{ background:#fff; color:var(--accent); box-shadow:0 1px 3px rgba(16,24,40,.12); }
+.seg-opt input:checked + span{ background:var(--accent); color:#fff; box-shadow:0 1px 3px rgba(16,24,40,.2); }
 .seg-opt input:focus-visible + span{ box-shadow:0 0 0 3px rgba(28,94,222,.25); }
 /* ---------- Сворачиваемые секции (Маршрут / Выбор техники) ---------- */
 .section-head{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
 .section-head .card-title{ margin:0; }
 .section-head:focus-visible{ outline:2px solid var(--accent); outline-offset:4px; border-radius:8px; }
 .section.is-collapsed .section-head{ cursor:pointer; margin-bottom:0; }
-/* Километраж в свёрнутом заголовке «Маршрут» — покрупнее для восприятия */
 .section-km{
   margin-left:auto; font-size:18px; font-weight:800; color:var(--accent);
   white-space:nowrap; font-variant-numeric:tabular-nums;
@@ -139,7 +139,7 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   border:1px solid var(--border); border-radius:12px; background:#f8fafc;
 }
 .btn-rent{ margin-top:16px; }
-.chassis-wrap{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+.chassis-wrap, .calc-mode-wrap{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
 .veh-label{ display:block; margin-bottom:6px; }
 .spec-label-row{ display:flex; align-items:center; }
 /* ---------- Характеристика + Смена в одну строку ---------- */
@@ -153,7 +153,6 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   margin-top:16px; padding:14px;
   border:1px solid var(--border); border-radius:12px; background:#f8fafc;
 }
-/* Пробег: оплачиваемый — крупно, общий — мельче и приглушённо */
 .price-miles{
   display:flex; flex-direction:column; gap:2px;
   margin-bottom:12px; padding-bottom:12px; border-bottom:1px dashed var(--border-strong);
@@ -162,12 +161,13 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
 .price-miles-paid b{ font-weight:800; }
 .price-miles-total{ font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .price-miles-total b{ font-weight:600; color:var(--ink-2); }
-/* Строки пробегов — без переноса «км» на мобильных, кегль по ширине экрана */
 .price-miles-paid{ white-space:nowrap; font-size:clamp(15px, 5vw, 20px); }
 .price-miles-total{ white-space:nowrap; }
-/* Ряд тумблеров «Цена с НДС» / «Включено в смену» (компонент .toggle, как «Возврат на МКАД») */
+/* Ряд тумблеров «Цена с НДС» / «Включено в смену» */
 .price-toggles{ display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap; margin:0 0 14px; }
 .price-toggles .toggle{ margin-top:0; }
+.price-toggles .toggle-group{ display:flex; align-items:center; }
+.price-toggles .help-wrap{ margin-left:4px; }
 /* Компактные поля ставок/километров */
 .pct-input, .km-input{
   width:48px; height:28px; padding:0 6px;
@@ -176,10 +176,10 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   transition:border-color .15s, box-shadow .15s;
 }
 .pct-input:focus, .km-input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(28,94,222,.14); }
+.km-input:disabled{ opacity:.6; background:#f2f4f7; cursor:default; }
 .unit-sign{ font-size:13px; color:var(--ink-2); }
 .price-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 .price-field{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--ink-2); }
-/* Подпись поля цен с маркером «?» в одну строку */
 .price-field-head{ display:flex; align-items:center; font-size:13px; color:var(--ink-2); }
 .price-field-head .help-wrap{ margin-left:4px; }
 .price-field input{
@@ -189,13 +189,18 @@ h1{ margin:0; font-size:20px; letter-spacing:-.01em; }
   transition:border-color .15s, box-shadow .15s;
 }
 .price-field input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(28,94,222,.14); }
-.price-total-note{ width:100%; font-size:12.5px; line-height:1.45; color:var(--ink-2); }
+/* Поле «Кол-во рейсов» — оранжевая подсветка */
+.rejsy-input{
+  border:1px solid var(--warn) !important;
+  background:var(--warn-soft) !important;
+}
+.rejsy-input:focus{ box-shadow:0 0 0 3px rgba(181,71,8,.18) !important; }
+.price-total-note{ width:100%; font-size:12.5px; line-height:1.45; color:var(--ink-2); margin-top:12px; }
 /* Варианты итоговой суммы */
 .price-offers{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-strong); display:flex; flex-direction:column; gap:8px; }
 .price-offers-title{ font-size:13px; font-weight:700; color:var(--ink-2); }
 .price-offer-row{ display:flex; align-items:center; gap:10px; }
 .price-offer-name{ flex:1 1 auto; min-width:0; font-size:14px; color:var(--ink-2); display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
-/* Поле % в названии строки — высотой с текст */
 .price-offer-name .pct-input{ width:40px; height:22px; padding:0 4px; font-size:13px; border-radius:6px; }
 .price-offer-value{ font-size:18px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .price-choose{
@@ -210,8 +215,7 @@ body.mode-rent .layout{ grid-template-columns:1fr; }
 body.mode-rent .col-side{ display:none; }
 /* ---------- Адреса ---------- */
 .addr-list{ display:flex; flex-direction:column; gap:10px; }
-.addr-row{ display:grid; grid-template-columns:28px minmax(0,1fr) 36px 36px; gap:8px; align-items:start; }
-/* Нумерация — кружок 20×20 как у маркера тултипа, цвета прежние */
+.addr-row{ display:grid; grid-template-columns:28px minmax(0,1fr) 36px 36px; gap:8px; align-items:start; transition:opacity .15s, filter .15s, transform .15s, box-shadow .15s; }
 .addr-num{
   width:20px; height:20px; margin:14px auto 0;
   display:flex; align-items:center; justify-content:center;
@@ -230,7 +234,6 @@ body.mode-rent .col-side{ display:none; }
 }
 .addr-field input::placeholder, .veh-field input::placeholder{ color:#b6bfcc; }
 .addr-row.is-ghost .addr-del, .addr-row.is-ghost .addr-drag{ visibility:hidden; }
-/* Ручка перетаскивания строки адреса */
 .addr-drag{
   width:36px; height:48px; border:1px solid var(--border); border-radius:12px;
   background:#fff center no-repeat;
@@ -238,14 +241,11 @@ body.mode-rent .col-side{ display:none; }
   cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none;
 }
 .addr-drag:active{ cursor:grabbing; }
-.addr-row{ transition:opacity .15s, filter .15s, transform .15s, box-shadow .15s; }
-/* Захваченная строка — «второй слой»: крупнее и выше остальных;
-   остальной список — приглушённый размытый «первый слой» */
 .addr-list.is-dragging .addr-row:not(.is-dragging){ opacity:.45; filter:blur(1px); }
 .addr-row.is-dragging{
   position:relative; z-index:5; transform:scale(1.02);
   background:#fff; border-radius:14px;
-  padding:8px; margin:-8px; /* воздушный слой вокруг инпута; отрицательные поля не сдвигают список */
+  padding:8px; margin:-8px;
   box-shadow:0 0 0 1px var(--border-strong), 0 10px 24px rgba(16,24,40,.16);
 }
 .addr-row.is-dragging .addr-field input{ border-color:var(--accent); }
@@ -254,7 +254,7 @@ body.mode-rent .col-side{ display:none; }
   background:#fff; color:var(--muted); font-size:20px; line-height:1; cursor:pointer;
 }
 .addr-del:hover{ color:var(--danger); border-color:#f0b2ac; }
-/* Тумблер «Возврат на МКАД» */
+/* Тумблеры */
 .toggle{ display:flex; align-items:center; gap:10px; margin-top:14px; cursor:pointer; user-select:none; }
 .toggle input{ position:absolute; opacity:0; pointer-events:none; }
 .toggle-box{
@@ -268,14 +268,10 @@ body.mode-rent .col-side{ display:none; }
 .toggle input:checked + .toggle-box{ background:var(--accent); }
 .toggle input:checked + .toggle-box::after{ transform:translateX(18px); }
 .toggle-text{ font-size:14px; font-weight:600; color:var(--ink-2); }
-.toggle-row{
-  display:flex; align-items:center; gap:8px 14px; margin-top:14px; flex-wrap:wrap;
-}
-/* Пара «тумблер + его ?» неделима: переносится только целиком, «?» не отрывается */
+.toggle-row{ display:flex; align-items:center; gap:8px 14px; margin-top:14px; flex-wrap:wrap; }
+.toggle-row .toggle{ margin-top:0; }
 .toggle-group{ display:flex; align-items:center; }
 .toggle-row .help-wrap{ margin-left:4px; }
-.toggle-row .toggle{ margin-top:0; gap:6px; }
-/* Адаптивный размер тумблера и текста: на десктопе стандартный, на мобильном компактнее */
 .toggle-row .toggle-box{
   width:clamp(34px, 9vw, 44px); height:clamp(20px, 5.5vw, 26px);
   border-radius:clamp(10px, 2.8vw, 13px);
@@ -284,16 +280,11 @@ body.mode-rent .col-side{ display:none; }
   width:clamp(16px, 4.2vw, 20px); height:clamp(16px, 4.2vw, 20px);
   top:clamp(2px, 0.5vw, 3px); left:clamp(2px, 0.5vw, 3px);
 }
-.toggle-row .toggle input:checked + .toggle-box::after{
-  transform:translateX(clamp(14px, 3.8vw, 18px));
-}
+.toggle-row .toggle input:checked + .toggle-box::after{ transform:translateX(clamp(14px, 3.8vw, 18px)); }
 .toggle-row .toggle-text{ font-size:clamp(12px, 3.4vw, 13px); white-space:nowrap; }
-.toggle-row .help-mark{
-  width:clamp(17px, 4.5vw, 20px); height:clamp(17px, 4.5vw, 20px);
-  font-size:clamp(10px, 2.8vw, 12px);
-}
+.toggle-row .help-mark{ width:clamp(17px, 4.5vw, 20px); height:clamp(17px, 4.5vw, 20px); font-size:clamp(10px, 2.8vw, 12px); }
 .toggle-hint{ margin:6px 0 0; font-size:12px; line-height:1.4; color:var(--muted); min-height:16px; }
-/* Предупреждение о недоступности сервисов (часто из-за VPN) */
+/* Предупреждение о недоступности сервисов */
 .net-warn{
   display:flex; align-items:flex-start; gap:10px;
   margin:0 0 16px; padding:10px 12px;
@@ -309,7 +300,7 @@ body.mode-rent .col-side{ display:none; }
 .addr-meta{ margin-top:5px; min-height:16px; font-size:12px; color:var(--muted); }
 .addr-meta[data-state="in"]{ color:var(--ok); font-weight:600; }
 .addr-meta[data-state="out"]{ color:var(--warn); font-weight:600; }
-/* ---------- Выпадающие подсказки (адреса) ---------- */
+/* ---------- Выпадающие подсказки ---------- */
 .veh-field{ position:relative; }
 .suggest{
   position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:1200;
@@ -325,6 +316,7 @@ body.mode-rent .col-side{ display:none; }
 .suggest-item.selected{ background:var(--accent-soft); }
 .suggest-item.selected .suggest-title::after{ content:" ✓"; color:var(--accent); font-weight:700; }
 .suggest-item.muted{ color:var(--muted); cursor:default; }
+.suggest-item.recent .suggest-sub{ color:var(--accent); font-weight:600; }
 .suggest-title{ font-size:14px; color:var(--ink); overflow-wrap:anywhere; }
 .suggest-sub{ font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
 /* ---------- Плашка пробега ---------- */
@@ -351,7 +343,6 @@ body.mode-rent .col-side{ display:none; }
 .plate-card[data-state="error"] .plate-status{ color:var(--danger); }
 @keyframes spin{ to{ transform:rotate(360deg); } }
 /* ---------- Списки характеристик и техники ---------- */
-.spec-row{ display:flex; flex-direction:column; gap:6px; }
 .spec-label{ font-size:13px; color:var(--ink-2); }
 .spec-control{
   width:100%; height:44px; padding:0 12px;
@@ -378,7 +369,6 @@ select.spec-control{
 .muted{ color:var(--muted); font-size:12.5px; }
 /* ---------- Карта ---------- */
 .map-card{ padding:8px; position:relative; }
-/* Кнопка разворота карты (десктоп) и полноэкранный режим */
 .map-expand{
   position:absolute; top:14px; right:14px; z-index:800;
   width:36px; height:36px; border:1px solid var(--border); border-radius:10px;
@@ -444,7 +434,6 @@ dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
 @media (max-width:640px){
   .page{ padding:12px 12px 170px; }
   .card{ padding:16px; border-radius:14px; }
-  /* Плашка прилипает к низу экрана */
   .plate-card{
     position:fixed; left:0; right:0; bottom:0; z-index:1100; margin:0;
     background:#fff;
@@ -455,17 +444,13 @@ dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
   }
   body.kb-open .plate-card{ transform:translateY(110%); }
   .plate-total{ font-size:30px; }
-  /* В режиме аренды плашка пробега скрыта — лишний нижний отступ не нужен */
   body.mode-rent .page{ padding-bottom:calc(28px + env(safe-area-inset-bottom)); }
   .price-grid{ grid-template-columns:1fr; }
-  /* Компактность плашки цен на мобильном */
   .price-field input{ height:40px; }
   .price-toggles{ gap:10px 12px; }
   .toggle-text{ font-size:13px; }
-  /* АНТИ-ЗУМ iOS: все компактные поля на мобильном — font-size 16px */
   .pct-input, .km-input{ font-size:16px; width:44px; }
   .price-offer-name .pct-input{ font-size:16px; width:38px; height:22px; padding:0 4px; }
-  /* Строки «Минимальная сумма аренды» — строго ОДНА строка */
   .price-offer-row{ flex-wrap:nowrap; gap:4px; }
   .price-offer-name{
     flex:0 1 auto; order:0; min-width:0; font-size:12.5px;
@@ -473,7 +458,4 @@ dialog p{ font-size:14px; line-height:1.55; color:var(--ink-2); }
   }
   .price-offer-value{ order:0; margin-left:auto; font-size:14px; }
   .price-choose{ order:0; height:28px; padding:0 7px; font-size:11.5px; border-radius:8px; }
-    /* Тумблеры в ряд: компактные, без ugly-переноса */
-  .toggle-row{ gap:4px 10px; }
-  .toggle-row .help-wrap{ margin-left:4px; }
 }

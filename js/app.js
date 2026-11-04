@@ -2,7 +2,7 @@ import { searchAddress, reverseGeocode } from './geocoder.js';
 import { buildRoute } from './router.js';
 import { ensureMKAD, loadMkadStatic, mkadAccessPoint, isInsideMKAD, getMKAD, mkadRingForMap, closestMKADPoint, mkadTravelBearing } from './mkad.js';
 import { haversine } from './geo.js';
-import { VEHICLES, CHASSIS_LABELS, SHIFT_MODES, SHIFT_DEFAULT, SHIFT_TOOLTIP } from './vehicles.js';
+import { VEHICLES, CHASSIS_LABELS, SHIFT_MODES, SHIFT_DEFAULT, SHIFT_TOOLTIP, REJSY_SUPPORTED } from './vehicles.js';
 
 /* ---------- Элементы ---------- */
 const $ = (s) => document.querySelector(s);
@@ -34,15 +34,21 @@ const vehicleSection = $('#vehicleSection');
 const vehicleHead = $('#vehicleHead');
 const vehicleSummary = $('#vehicleSummary');
 const chassisWrap = $('#chassisWrap');
+const calcModeWrap = $('#calcModeWrap');
 const specWrap = $('#specWrap');
 const specLabel = $('#specLabel');
 const specTip = $('#specTip');
 const specSelect = $('#specSelect');
+const shiftCol = $('#shiftCol');
 const shiftSelect = $('#shiftSelect');
 const shiftTip = $('#shiftTip');
 const pricePlate = $('#pricePlate');
 const priceShift = $('#priceShift');
+const priceShiftLabel = $('#priceShiftLabel');
+const hourField = $('#hourField');
 const priceHour = $('#priceHour');
+const rejsyField = $('#rejsyField');
+const rejsyCount = $('#rejsyCount');
 const priceKm = $('#priceKm');
 const priceTotal = $('#priceTotal');
 const priceVat = $('#priceVat');
@@ -52,6 +58,7 @@ const milesPaid = $('#milesPaid');
 const milesTotal = $('#milesTotal');
 const vatToggle = $('#vatToggle');
 const inclToggle = $('#inclToggle');
+const inclTip = $('#inclTip');
 const inclKm = $('#inclKm');
 const vatRowPct = $('#vatRowPct');
 const noVatPct = $('#noVatPct');
@@ -84,6 +91,12 @@ let lastDistanceM = null;   // общий пробег последнего ус
 let lastRouteData = null;   // данные геометрии для оплачиваемого пробега; при ошибке НЕ меняется
 let rentOption = null;      // выбранный вариант характеристики
 let shiftModeId = SHIFT_DEFAULT; // выбранный режим «Смена» (влияет только на сумму, поля не меняет)
+let calcMode = 'standard';  // 'standard' | 'rejsy' (способ расчёта, только для REJSY_SUPPORTED)
+let savedInclKm = '10';     // пользовательское значение «Включено в смену» на время режима «Рейсы»
+
+/* Тексты тултипа «Включено в смену» по режимам */
+const INCL_TIP_STANDARD = 'ВКЛ и оплачиваемый пробег (округлённый) не больше указанных км → пробег не оплачивается; строго больше → оплачивается полностью. ВЫКЛ → оплачивается весь оплачиваемый пробег.';
+const INCL_TIP_REJSY = 'ВКЛ — пробег включён в цену рейса и отдельно не оплачивается. ВЫКЛ — пробег оплачивается отдельно, но только вне МКАД (пробег внутри Москвы не учитывается).';
 
 /* ---------- Утилиты ---------- */
 const kmFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -110,7 +123,6 @@ function pctVal(el, fallback){
   const n = parseFloat(el.value);
   return isFinite(n) && n >= 0 ? n : fallback;
 }
-
 /* Транслитерация: английская раскладка → кириллица (для поиска адресов) */
 function transliterateToCyrillic(str){
   const map = {
@@ -140,6 +152,39 @@ tileLayer.on('tileerror', () => {
 });
 if (netWarnClose){
   netWarnClose.addEventListener('click', () => { netWarn.hidden = true; });
+}
+
+/* ---------- Последние адреса (память сессии, TTL 30 минут) ---------- */
+const RECENT_TTL_MS = 30 * 60 * 1000;
+const RECENT_MAX = 7;
+let recentAddresses = [];
+function rememberAddress(lonlat, title, sub){
+  recentAddresses = recentAddresses.filter(r => haversine(r.lonlat, lonlat) > 50);
+  recentAddresses.unshift({ lonlat, title, sub: sub || '', ts: Date.now() });
+  if (recentAddresses.length > RECENT_MAX) recentAddresses.length = RECENT_MAX;
+}
+function freshRecents(){
+  const now = Date.now();
+  recentAddresses = recentAddresses.filter(r => now - r.ts < RECENT_TTL_MS);
+  return recentAddresses;
+}
+function matchRecents(q){
+  const list = freshRecents();
+  if (!q) return list.slice();
+  const ql = q.toLowerCase();
+  return list.filter(r =>
+    r.title.toLowerCase().includes(ql) || (r.sub && r.sub.toLowerCase().includes(ql)));
+}
+function appendRecentItems(row, recents){
+  recents.forEach(r => {
+    const item = makeSuggestItem(r.title, r.sub ? r.sub + ' · недавний' : 'недавний');
+    item.classList.add('recent');
+    item.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      confirmRow(row, r.lonlat, r.title, r.sub);
+    });
+    row.suggest.append(item);
+  });
 }
 
 /* ---------- Строки адресов ---------- */
@@ -184,6 +229,16 @@ function createRow(){
     clearTimeout(row.timer);
     row.timer = setTimeout(() => fetchSuggestions(row), 400);
     if (wasConfirmed) scheduleRecalc();
+  });
+  // Фокус в пустое поле — сразу показываем последние адреса сессии
+  input.addEventListener('focus', () => {
+    if (input.value.trim() !== '') return;
+    const recents = matchRecents('');
+    if (recents.length){
+      row.suggest.textContent = '';
+      appendRecentItems(row, recents);
+      row.suggest.hidden = false;
+    }
   });
   input.addEventListener('keydown', (e) => onSuggestKeys(row, e));
   input.addEventListener('blur', () => {
@@ -237,7 +292,6 @@ addrList.addEventListener('pointermove', (e) => {
   const after = getDragAfterElement(e.clientY);
   const ghostEl = addrList.querySelector('.addr-row.is-ghost');
   if (after == null){
-    // ниже всех: ставим перед ghost-строкой (ghost всегда последняя)
     if (ghostEl && ghostEl !== dragRow) addrList.insertBefore(dragRow, ghostEl);
     else addrList.append(dragRow);
   } else if (after !== dragRow){
@@ -253,7 +307,6 @@ function finishDrag(){
   dragRow = null;
   syncRowsFromDom();
 }
-/* Строка, ПЕРЕД которой нужно вставить перетаскиваемую: ближайшая сверху от курсора */
 function getDragAfterElement(y){
   const els = [...addrList.querySelectorAll('.addr-row:not(.is-dragging)')];
   let closest = null;
@@ -265,7 +318,6 @@ function getDragAfterElement(y){
   });
   return closest;
 }
-/* После броска: порядок массива rows = порядку DOM, затем перенумерация и пересчёт */
 function syncRowsFromDom(){
   const order = [...addrList.children].filter(el => el.classList.contains('addr-row'));
   rows.sort((a, b) => order.indexOf(a.wrap) - order.indexOf(b.wrap));
@@ -296,14 +348,13 @@ async function fetchSuggestions(row){
   row.seq++;
   const my = row.seq;
   if (row.ctrl) row.ctrl.abort();
-  if (q.length < 3){ hideSuggest(row); return; }
   const coords = parseCoords(q);
-  row.ctrl = new AbortController();
-  row.suggest.textContent = '';
-  row.suggest.append(makeSuggestItem('Ищем…', null, true));
-  row.suggest.hidden = false;
-  try {
-    if (coords){
+  if (coords){
+    row.ctrl = new AbortController();
+    row.suggest.textContent = '';
+    row.suggest.append(makeSuggestItem('Ищем…', null, true));
+    row.suggest.hidden = false;
+    try {
       const name = await reverseGeocode(coords.lat, coords.lon, row.ctrl.signal);
       if (row.seq !== my) return;
       row.suggest.textContent = '';
@@ -311,42 +362,73 @@ async function fetchSuggestions(row){
       item.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         // В поле остаётся адрес из дропдауна (reverse-геокодинг), а не введённые координаты
-        confirmRow(row, [coords.lon, coords.lat], name);
+        confirmRow(row, [coords.lon, coords.lat], name, 'Точка с координатами');
       });
       row.suggest.append(item);
       row.suggest.hidden = false;
-      return;
+    } catch (err){
+      if (err.name === 'AbortError' || row.seq !== my) return;
+      showNetWarning();
+      row.suggest.textContent = '';
+      row.suggest.append(makeSuggestItem('Не удалось проверить координаты. Проверьте интернет (при включённом VPN — отключите его).', null, true));
+      row.suggest.hidden = false;
     }
+    return;
+  }
+  // Последние адреса сессии показываем СРАЗУ (до удалённого поиска)
+  const recents = matchRecents(q);
+  row.ctrl = new AbortController();
+  row.suggest.textContent = '';
+  appendRecentItems(row, recents);
+  if (!q){
+    row.suggest.hidden = recents.length === 0;
+    return;
+  }
+  if (q.length < 3){
+    row.suggest.hidden = recents.length === 0;
+    return;
+  }
+  if (recents.length) row.suggest.append(makeSuggestItem('Ищем…', null, true));
+  row.suggest.hidden = false;
+  try {
     const results = await searchAddress(q, row.ctrl.signal);
     if (row.seq !== my) return;
     row.suggest.textContent = '';
-    if (!results.length){
-      row.suggest.append(makeSuggestItem('Ничего не найдено. Уточните адрес.', null, true));
-    } else {
-      results.forEach(r => {
-        const item = makeSuggestItem(r.title, r.sub || '');
-        item.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          // В поле остаётся первая строка дропдауна (title), а не то, что вводил пользователь
-          confirmRow(row, [r.lon, r.lat], r.title);
-        });
-        row.suggest.append(item);
+    appendRecentItems(row, recents);
+    const shown = recents.map(r => r.lonlat);
+    let added = 0;
+    (results || []).forEach(r => {
+      // Дедупликация: удалённый результат ближе 50 м к показанному недавнему — пропускаем
+      if (shown.some(p => haversine(p, [r.lon, r.lat]) < 50)) return;
+      const item = makeSuggestItem(r.title, r.sub || '');
+      item.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        // В поле остаётся первая строка дропдауна (title), а не то, что вводил пользователь
+        confirmRow(row, [r.lon, r.lat], r.title, r.sub || '');
       });
+      row.suggest.append(item);
+      added++;
+    });
+    if (!recents.length && !added){
+      row.suggest.append(makeSuggestItem('Ничего не найдено. Уточните адрес.', null, true));
     }
     row.suggest.hidden = false;
   } catch (err){
     if (err.name === 'AbortError' || row.seq !== my) return;
     showNetWarning();
     row.suggest.textContent = '';
-    row.suggest.append(makeSuggestItem('Не удалось проверить адрес. Проверьте интернет (при включённом VPN — отключите его).', null, true));
+    appendRecentItems(row, recents);
+    if (!recents.length){
+      row.suggest.append(makeSuggestItem('Не удалось проверить адрес. Проверьте интернет (при включённом VPN — отключите его).', null, true));
+    }
     row.suggest.hidden = false;
   }
 }
-function confirmRow(row, lonlat, label){
+function confirmRow(row, lonlat, label, sub){
   if (row.ctrl) row.ctrl.abort();
   row.latlon = lonlat;
-  // Сохраняем оригинальный ввод пользователя (не транслитерированный)
   row.input.value = label;
+  rememberAddress(lonlat, label, sub);
   hideSuggest(row);
   updateRowInside(row);
   const added = ensureGhost();
@@ -423,7 +505,6 @@ function onMkadReady(){
 }
 
 /* ---------- Переключатель «Возврат на МКАД» ---------- */
-/* Блокируется и игнорируется, если последний подтверждённый адрес внутри МКАД */
 function updateReturnToggle(){
   const used = confirmedPrefix();
   const lastInside = used.length ? isInsideMKAD(used[used.length - 1].latlon) === true : false;
@@ -683,14 +764,11 @@ function outsideMkadDistance(pts){
 }
 
 /* ---------- Выбор съезда ПО ДОРОГАМ, а не по прямой ---------- */
-/* Цепочка устойчивости: table+bearings → table без bearings → route-зонд топ-3 → прямая.
-   Режим работы пишется в console.info, ошибки — в console.warn: ничего не молчит. */
 const junctionProbeCache = new Map();
 function probeListFor(st, side, role){
   const all = (st.junctions || []).filter(j => typeof j.idx === 'number');
   if (role === 'start') return all.filter(j => j.side === side && j.type === 'exit');
   // Возврат: въезды ОБЕИХ сторон — ближайший достижимый слив; иначе клеверницы
-  // на развязках, когда прямой съезд идёт на встречную сторону (кейс «Кубинка»).
   return all.filter(j => j.type === 'enter');
 }
 async function tableDistances(coords, sources, destinations, bearEntries){
@@ -721,8 +799,6 @@ async function probeBestJunction(address, inside, role){
   const list = probeListFor(st, side, role);
   if (list.length < 2) return null;
   // Кандидаты: 4 ближайших ПО ПРЯМОЙ + 4 ближайших ПО СЕКТОРУ (угол от центра Москвы).
-  // У дальних адресов дорожно-оптимальный съезд лежит в секторе адреса,
-  // но по прямой может быть 5–8-м (Новопетровское → Новорижский).
   const aAddr = probeAngle(address);
   const byDist = list
     .map((j, i) => ({ i, d: haversine(address, [j.lon, j.lat]) }))
@@ -743,17 +819,13 @@ async function probeBestJunction(address, inside, role){
   const coords = role === 'start' ? cand.concat([addr]).join(';') : [addr].concat(cand).join(';');
   const sources = role === 'start' ? near.map((_, k) => k).join(';') : '0';
   const destinations = role === 'start' ? String(near.length) : near.map((_, k) => k + 1).join(';');
-  // Bearings НЕ передаём в table: trailing ';' ломает URL, а для сравнения дистанций
-  // направление не критично. Bearings используются только в route-зонде и buildRoute.
-  const bearEntries = null;
   let distances = null;
   try {
     distances = await tableDistances(coords, sources, destinations, null);
     mode = 'table';
-    } catch (e2){
-      console.warn('OSRM table недоступен, включаю route-зонд:', e2);
-    }
-  
+  } catch (e2){
+    console.warn('OSRM table недоступен, включаю route-зонд:', e2);
+  }
   if (distances){
     let bestK = -1, bestD = Infinity;
     for (let k = 0; k < near.length; k++){
@@ -762,14 +834,12 @@ async function probeBestJunction(address, inside, role){
     }
     if (bestK >= 0) best = near[bestK];
   } else {
-    // Фолбэк: реальные маршруты ДО ВСЕХ кандидатов (параллельно), берём короткий.
-    // Прямой слив без клеверницы выигрывает по дистанции сам (кейс «Кубинка»).
+    // Фолбэк: реальные маршруты ДО ВСЕХ кандидатов, задержка 100ms между запросами
+    // (баланс скорости и защиты от HTTP 429 публичных OSRM-серверов)
     mode = 'route-probe';
-    // Последовательное выполнение с задержкой 200ms — защита от HTTP 429
-    // на публичных OSRM-серверах (routing.openstreetmap.de имеет строгий rate-limit)
     const res = [];
     for (let k = 0; k < near.length; k++){
-      if (k > 0) await new Promise(r => setTimeout(r, 200));
+      if (k > 0) await new Promise(r => setTimeout(r, 100));
       const i = near[k];
       const pt = [list[i].lon, list[i].lat];
       const b = mkadTravelBearing(pt, list[i].side);
@@ -794,7 +864,6 @@ async function probeBestJunction(address, inside, role){
       const bestPt = [list[near[bestK]].lon, list[near[bestK]].lat];
       const directDist = haversine(address, bestPt);
       if (bestD > directDist + 2000){
-        // Ищем следующего кандидата с более коротким маршрутом
         for (let k = 0; k < near.length; k++){
           if (k === bestK) continue;
           const r = res[k];
@@ -819,15 +888,18 @@ async function probeBestJunction(address, inside, role){
   return best;
 }
 
-/* ---------- Франшиза «Включено в смену» ---------- */
-/* ВКЛ: оплачиваемый пробег (округлённый, как на экране) НЕ БОЛЬШЕ значения → 0;
-   СТРОГО больше → оплачивается ПОЛНОСТЬЮ. ВЫКЛ: оплачивается весь.
-   Пример: включено 5, маршрут 5,2 (на экране 5) → 5 <= 5 → не оплачивается. */
+/* ---------- Франшиза «Включено в смену» и режим «Рейсы» ---------- */
+function isRejsyMode(v){
+  return !!v && calcMode === 'rejsy' && REJSY_SUPPORTED.includes(v.id);
+}
 function paidKmRaw(v){
   return Math.round(paidDistanceFor(v) / 1000);
 }
+/* Стандарт: ВКЛ и пробег ≤ значения → 0; строго больше → полностью; ВЫКЛ → весь.
+   Рейсы: ВКЛ → 0 (пробег в рейсе); ВЫКЛ → весь оплачиваемый (для КМУ = вне МКАД). */
 function paidKmEffective(v){
   const raw = paidKmRaw(v);
+  if (isRejsyMode(v)) return inclToggle.checked ? 0 : raw;
   if (!inclToggle.checked) return raw;
   return raw <= pctVal(inclKm, 10) ? 0 : raw;
 }
@@ -840,6 +912,8 @@ function updatePlateMiles(){
     plateTotalLine.hidden = false;
     plateDistance.textContent = String(paidKmEffective(v));
     plateTotalLine.textContent = 'Общий пробег: ' + fmtKmWhole(lastDistanceM);
+    // В режиме «Рейсы» поле км у тумблера — информационное: показываем оплачиваемый пробег
+    if (isRejsyMode(v) && inclKm.disabled) inclKm.value = paidKmRaw(v);
   } else {
     plateCaption.hidden = true;
     plateTotalLine.hidden = true;
@@ -880,6 +954,7 @@ vehicleSelect.addEventListener('change', () => {
   } else {
     rentOption = null;
     chassisWrap.hidden = true;
+    calcModeWrap.hidden = true;
     specWrap.hidden = true;
     pricePlate.hidden = true;
     updateVehicleSummary();
@@ -893,6 +968,11 @@ function renderVehicleDetails(v){
   const hw = document.querySelector('input[name="chassis"][value="highway"]');
   if (hw) hw.checked = true;
   chassisWrap.hidden = !v.hasChassis;
+  // Способ расчета — только для техники из REJSY_SUPPORTED; сброс на «Стандарт»
+  calcMode = 'standard';
+  const stdRadio = document.querySelector('input[name="calcmode"][value="standard"]');
+  if (stdRadio) stdRadio.checked = true;
+  calcModeWrap.hidden = !REJSY_SUPPORTED.includes(v.id);
   specLabel.textContent = v.specName;
   specTip.textContent = v.specTooltip;
   specSelect.textContent = '';
@@ -908,16 +988,45 @@ function renderVehicleDetails(v){
   shiftModeId = SHIFT_DEFAULT;
   shiftSelect.value = SHIFT_DEFAULT;
   specWrap.hidden = false;
+  applyCalcModeUI();
   updateVehicleSummary();
   updatePlateMiles();
 }
+
+/* ---------- Способ расчета: Стандарт / Рейсы ---------- */
+/* Переключение НЕ сбрасывает значения полей (2.10): меняется только подпись,
+   видимость «За час»/«Кол-во рейсов» и формула в recalcRentTotal. */
+function applyCalcModeUI(){
+  const rejsy = calcMode === 'rejsy';
+  hourField.hidden = rejsy;
+  rejsyField.hidden = !rejsy;
+  shiftCol.hidden = rejsy;
+  priceShiftLabel.textContent = rejsy ? 'За рейс, ₽' : 'За смену 7+1, ₽';
+  inclTip.textContent = rejsy ? INCL_TIP_REJSY : INCL_TIP_STANDARD;
+  if (rejsy){
+    savedInclKm = inclKm.value;
+    inclKm.disabled = true;
+    const v = VEHICLES.find(x => x.id === selectedVehicleId);
+    if (v && lastDistanceM != null) inclKm.value = paidKmRaw(v);
+  } else {
+    inclKm.disabled = false;
+    inclKm.value = savedInclKm;
+  }
+  recalcRentTotal();
+  updateVehicleSummary();
+}
+document.querySelectorAll('input[name="calcmode"]').forEach(r => {
+  r.addEventListener('change', () => {
+    calcMode = r.value === 'rejsy' ? 'rejsy' : 'standard';
+    applyCalcModeUI();
+  });
+});
+rejsyCount.addEventListener('input', recalcRentTotal);
 
 /* ---------- Режим «Смена», НДС и цены ---------- */
 function shiftMode(){
   return SHIFT_MODES.find(m => m.id === shiftModeId) || SHIFT_MODES[0];
 }
-/* Доп. часы режима СВЕРХ базового 7+1 (8 оплачиваемых часов):
-   доп. часы = (work + delivery) − 8, не меньше 0. Поля цен режим НЕ меняет. */
 function shiftExtraHours(mode){
   return Math.max(0, mode.work + mode.delivery - 8);
 }
@@ -926,9 +1035,6 @@ function getBasePrices(v, option, chassis){
   if (!byOption) return null;
   return byOption[chassis] || byOption.highway || null;
 }
-/* Заполняет поля цен базовыми значениями; при включённом «Цена с НДС» —
-   база × (1 + ставка из поля «С НДС» / 100). Переключение крыжика, правка ставки,
-   смена варианта/шасси сбрасывают ручные правки. */
 function fillBasePrices(v, option, chassis){
   const p = getBasePrices(v, option, chassis);
   const mult = vatToggle.checked ? (1 + pctVal(vatRowPct, 22) / 100) : 1;
@@ -966,7 +1072,6 @@ document.querySelectorAll('input[name="chassis"]').forEach(r => {
     updateVehicleSummary();
   });
 });
-// Крыжик «Цена с НДС»: поля цен = база × (1 + q/100) или обратно к базе
 vatToggle.addEventListener('change', () => {
   const v = VEHICLES.find(x => x.id === selectedVehicleId);
   if (v && rentOption){
@@ -974,7 +1079,6 @@ vatToggle.addEventListener('change', () => {
     recalcRentTotal();
   }
 });
-// Правка ставки «С НДС»: при ВКЛ-крыжике переполняем поля от базы с новой ставкой
 vatRowPct.addEventListener('input', () => {
   const v = VEHICLES.find(x => x.id === selectedVehicleId);
   if (vatToggle.checked && v && rentOption){
@@ -983,7 +1087,6 @@ vatRowPct.addEventListener('input', () => {
   recalcRentTotal();
 });
 noVatPct.addEventListener('input', recalcRentTotal);
-// Франшиза «Включено в смену»: меняет оплачиваемый пробег и строки
 inclToggle.addEventListener('change', () => {
   recalcRentTotal();
   updatePlateMiles();
@@ -1002,7 +1105,6 @@ priceShift.addEventListener('input', () => {
   recalcRentTotal();
 });
 [priceHour, priceKm].forEach(inp => inp.addEventListener('input', recalcRentTotal));
-// Кнопки «Выбрать» — заглушка до следующей фичи
 document.querySelectorAll('.price-choose').forEach(b => {
   b.addEventListener('click', () => {
     toast('Кнопка «Выбрать» — заглушка: выбор варианта расчёта появится в следующей итерации');
@@ -1022,24 +1124,53 @@ function paidDistanceFor(v){
   if (v.id === 'avtokran') return lastRouteData.outsideDelivery + lastRouteData.outsideReloc;
   return lastDistanceM || 0;
 }
-/* ФОРМУЛА: S = смена(7+1) + (доп. часы режима + доп. часы типа) × час
-           + Оплачиваемый пробег ПОСЛЕ франшизы (целые км) × цена/км — из текущих полей.
-   Ставки из полей UI: q = «С НДС %» (она же — ставка крыжика «Цена с НДС»), p = «Без НДС %».
-   Строки БЕЗ двойного НДС:
-   - крыжик ВЫКЛ: наличный = S; с НДС = наличный × (1+q/100); без НДС = наличный × (1+p/100);
-   - крыжик ВКЛ: наличный = S / (1+q/100); с НДС = наличный × (1+q/100) (= S);
-     без НДС = наличный × (1+p/100). */
+/* ФОРМУЛЫ (ставки q/p из полей UI):
+   СТАНДАРТ: S = смена(7+1) + (доп. часы режима + доп. часы типа) × час + оплачиваемый пробег × км;
+   РЕЙСЫ:    S = «За рейс» × кол-во рейсов + оплачиваемый пробег (ВЫКЛ-тумблер: только вне МКАД) × км;
+   Строки: наличный = S (крыжик ВЫКЛ) или S/(1+q/100) (ВКЛ); с НДС = наличный × (1+q/100);
+   без НДС = наличный × (1+p/100). */
 function recalcRentTotal(){
   const v = VEHICLES.find(x => x.id === selectedVehicleId);
   if (!v || !rentOption) return;
+  const rejsy = isRejsyMode(v);
   const shift = priceVal(priceShift);
   const hourRate = priceVal(priceHour);
   const kmRate = priceVal(priceKm);
-  const extraMode = shiftExtraHours(shiftMode());
-  const extraType = extraHoursFor(v, confirmedPrefix().length);
   const rawPaidKm = paidKmRaw(v);
   const paidKm = paidKmEffective(v);
-  const total = shift + (extraMode + extraType) * hourRate + paidKm * kmRate;
+  let total, sym, num, tail = '';
+  if (rejsy){
+    const count = Math.max(1, Math.round(priceVal(rejsyCount) || 1));
+    total = shift * count + paidKm * kmRate;
+    sym = ['Рейс × ' + count];
+    num = [fmtRub(shift) + ' × ' + count];
+    if (paidKm > 0){
+      sym.push('пробег вне МКАД');
+      num.push(paidKm + ' км × ' + fmtRub(kmRate) + '/км');
+    } else if (rawPaidKm > 0){
+      tail = ' · пробег ' + rawPaidKm + ' км включён в рейс — не оплачивается';
+    }
+  } else {
+    const extraMode = shiftExtraHours(shiftMode());
+    const extraType = extraHoursFor(v, confirmedPrefix().length);
+    total = shift + (extraMode + extraType) * hourRate + paidKm * kmRate;
+    const kmLabel = (v.id === 'avtovyshka' || v.id === 'prikrytie') ? 'пробег' : 'оплачиваемый пробег';
+    const typeLabel = v.id === 'avtokran' ? 'перебазировки'
+      : v.id === 'manipulyator' ? 'доп. адреса'
+      : 'доп. часы';
+    sym = ['смена (' + shiftModeId + ')'];
+    num = [fmtRub(shift)];
+    if (extraMode > 0){ sym.push('доп. часы смены (' + extraMode + ' ч)'); num.push(extraMode + ' ч × ' + fmtRub(hourRate)); }
+    if (extraType > 0){ sym.push(typeLabel + ' (' + extraType + ' ч)'); num.push(extraType + ' ч × ' + fmtRub(hourRate)); }
+    if (paidKm > 0){
+      sym.push(kmLabel);
+      num.push(paidKm + ' км × ' + fmtRub(kmRate) + '/км');
+    } else if (rawPaidKm > 0 && inclToggle.checked){
+      const inc = pctVal(inclKm, 10);
+      tail = ' · пробег ' + rawPaidKm + ' км ' + (rawPaidKm < inc ? 'меньше' : 'равен') +
+        ' включённым в смену ' + inc + ' км — не оплачивается';
+    }
+  }
   milesTotal.textContent = lastDistanceM == null ? 'не рассчитан' : fmtKmWhole(lastDistanceM);
   milesPaid.textContent = lastDistanceM == null ? '—' : paidKm + ' км';
   const q = pctVal(vatRowPct, 22);
@@ -1048,23 +1179,6 @@ function recalcRentTotal(){
   priceTotal.textContent = fmtRub(cash);
   priceVat.textContent = moneyFmt.format(cash * (1 + q / 100)) + ' ₽';
   priceNoVat.textContent = moneyFmt.format(cash * (1 + p / 100)) + ' ₽';
-  const kmLabel = (v.id === 'avtovyshka' || v.id === 'prikrytie') ? 'пробег' : 'оплачиваемый пробег';
-  const typeLabel = v.id === 'avtokran' ? 'перебазировки'
-    : v.id === 'manipulyator' ? 'доп. адреса'
-    : 'доп. часы';
-  const sym = ['смена (' + shiftModeId + ')'];
-  const num = [fmtRub(shift)];
-  if (extraMode > 0){ sym.push('доп. часы смены (' + extraMode + ' ч)'); num.push(extraMode + ' ч × ' + fmtRub(hourRate)); }
-  if (extraType > 0){ sym.push(typeLabel + ' (' + extraType + ' ч)'); num.push(extraType + ' ч × ' + fmtRub(hourRate)); }
-  let tail = '';
-  if (paidKm > 0){
-    sym.push(kmLabel);
-    num.push(paidKm + ' км × ' + fmtRub(kmRate) + '/км');
-  } else if (rawPaidKm > 0 && inclToggle.checked){
-    const inc = pctVal(inclKm, 10);
-    tail = ' · пробег ' + rawPaidKm + ' км ' + (rawPaidKm < inc ? 'меньше' : 'равен') +
-      ' включённым в смену ' + inc + ' км — не оплачивается';
-  }
   const vatNote = vatToggle.checked ? ' · цены в полях с НДС ' + q + '%' : '';
   if (lastDistanceM == null){
     priceTotalNote.textContent = 'Расчет = ' + sym.join(' + ') + ' = ' + num.join(' + ') +
@@ -1079,7 +1193,8 @@ function updateVehicleSummary(){
   const parts = [v.name];
   if (rentOption) parts.push(rentOption);
   if (v.hasChassis) parts.push(CHASSIS_LABELS[chassisValue()] || 'Шоссейное');
-  if (rentOption) parts.push(shiftModeId);
+  if (rentOption && !isRejsyMode(v)) parts.push(shiftModeId);
+  if (isRejsyMode(v)) parts.push('рейсы');
   vehicleSummary.textContent = parts.join(' · ');
 }
 
@@ -1219,6 +1334,7 @@ createRow();
 initVehicleSelect();
 initShiftSelect();
 shiftTip.textContent = SHIFT_TOOLTIP;
+inclTip.textContent = INCL_TIP_STANDARD;
 updateReturnToggle();
 updateRouteSummary();
 updatePlateMiles();
