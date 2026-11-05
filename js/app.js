@@ -93,6 +93,7 @@ let rentOption = null;      // выбранный вариант характе�
 let shiftModeId = SHIFT_DEFAULT; // выбранный режим «Смена» (влияет только на сумму, поля не меняет)
 let calcMode = 'standard';  // 'standard' | 'rejsy' (способ расчёта, только для REJSY_SUPPORTED)
 let savedInclKm = '10';     // пользовательское значение «Включено в смену» на время режима «Рейсы»
+let rejsyTouched = false;   // пользователь правил «Кол-во рейсов» вручную — авто-дефолт выключен
 
 /* Тексты тултипа «Включено в смену» по режимам */
 const INCL_TIP_STANDARD = 'ВКЛ и оплачиваемый пробег (округлённый) не больше указанных км → пробег не оплачивается; строго больше → оплачивается полностью. ВЫКЛ → оплачивается весь оплачиваемый пробег.';
@@ -123,6 +124,23 @@ function pctVal(el, fallback){
   const n = parseFloat(el.value);
   return isFinite(n) && n >= 0 ? n : fallback;
 }
+
+/* ---------- Автоширина компактных полей (% / км) ---------- */
+/* Нативный механизм: атрибут size = число символов значения + 1 запасной.
+   Браузер сам считает ширину по СВОЕМУ шрифту инпута — без измерений, зеркал и обрезок
+   (зеркало-span в браузере пользователя возвращало 0 и сажало поле на min-width).
+   Ограничители в CSS: min-width 44px (tap-target), max-width 110px — не на всю страницу. */
+function autofitCompactInput(el){
+  if (!el) return;
+  const len = String(el.value).trim().length || 1;
+  el.size = Math.max(3, Math.min(len + 1, 10));
+}
+[inclKm, vatRowPct, noVatPct].forEach(el => {
+  autofitCompactInput(el);
+  el.addEventListener('input', () => autofitCompactInput(el));
+  el.addEventListener('change', () => autofitCompactInput(el));
+});
+
 /* Транслитерация: английская раскладка → кириллица (для поиска адресов) */
 function transliterateToCyrillic(str){
   const map = {
@@ -913,7 +931,10 @@ function updatePlateMiles(){
     plateDistance.textContent = String(paidKmEffective(v));
     plateTotalLine.textContent = 'Общий пробег: ' + fmtKmWhole(lastDistanceM);
     // В режиме «Рейсы» поле км у тумблера — информационное: показываем оплачиваемый пробег
-    if (isRejsyMode(v) && inclKm.disabled) inclKm.value = paidKmRaw(v);
+    if (isRejsyMode(v) && inclKm.disabled){
+    inclKm.value = paidKmRaw(v);
+    autofitCompactInput(inclKm);
+    }
   } else {
     plateCaption.hidden = true;
     plateTotalLine.hidden = true;
@@ -970,6 +991,7 @@ function renderVehicleDetails(v){
   chassisWrap.hidden = !v.hasChassis;
   // Способ расчета — только для техники из REJSY_SUPPORTED; сброс на «Стандарт»
   calcMode = 'standard';
+  rejsyTouched = false;
   const stdRadio = document.querySelector('input[name="calcmode"][value="standard"]');
   if (stdRadio) stdRadio.checked = true;
   calcModeWrap.hidden = !REJSY_SUPPORTED.includes(v.id);
@@ -998,6 +1020,7 @@ function renderVehicleDetails(v){
    видимость «За час»/«Кол-во рейсов» и формула в recalcRentTotal. */
 function applyCalcModeUI(){
   const rejsy = calcMode === 'rejsy';
+  rejsyTouched = false; // смена способа расчёта возвращает авто-дефолт рейсов
   hourField.hidden = rejsy;
   rejsyField.hidden = !rejsy;
   shiftCol.hidden = rejsy;
@@ -1011,6 +1034,7 @@ function applyCalcModeUI(){
   } else {
     inclKm.disabled = false;
     inclKm.value = savedInclKm;
+    autofitCompactInput(inclKm);
   }
   recalcRentTotal();
   updateVehicleSummary();
@@ -1021,7 +1045,10 @@ document.querySelectorAll('input[name="calcmode"]').forEach(r => {
     applyCalcModeUI();
   });
 });
-rejsyCount.addEventListener('input', recalcRentTotal);
+rejsyCount.addEventListener('input', () => {
+  rejsyTouched = true; // пользователь указал рейсы вручную — авто-дефолт больше не перезаписывает
+  recalcRentTotal();
+});
 
 /* ---------- Режим «Смена», НДС и цены ---------- */
 function shiftMode(){
@@ -1133,6 +1160,12 @@ function recalcRentTotal(){
   const v = VEHICLES.find(x => x.id === selectedVehicleId);
   if (!v || !rentOption) return;
   const rejsy = isRejsyMode(v);
+    // Авто-дефолт «Кол-во рейсов» по схеме цепочки: 1-2, 2-3, 3-4… = адресов − 1 (минимум 1).
+  // Работает, пока пользователь не правил поле вручную (rejsyTouched).
+  if (rejsy && !rejsyTouched){
+    const defN = Math.max(1, confirmedPrefix().length - 1);
+    if (String(defN) !== rejsyCount.value) rejsyCount.value = String(defN);
+  }
   const shift = priceVal(priceShift);
   const hourRate = priceVal(priceHour);
   const kmRate = priceVal(priceKm);
